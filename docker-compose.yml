@@ -1,0 +1,66 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: school_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: school_management_system
+      MYSQL_USER: school_user
+      MYSQL_PASSWORD: school_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/1.sql
+    networks:
+      - school_network
+
+  backend:
+    build: ./backend
+    container_name: school_backend
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: school_user
+      DB_PASSWORD: school_password
+      DB_NAME: school_management_system
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - school_network
+
+  frontend:
+    build: ./frontend
+    container_name: school_frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - school_network
+
+  signaling-server:
+    build: ./webrtc-signaling-server
+    container_name: school_signaling
+    ports:
+      - "5001:5001"
+    networks:
+      - school_network
+
+volumes:
+  mysql_data:
+
+networks:
+  school_network:
+    driver: bridge
