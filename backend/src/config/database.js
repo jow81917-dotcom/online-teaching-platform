@@ -1,14 +1,19 @@
 // backend/src/config/database.js
-const { Sequelize } = require('sequelize');
 require('dotenv').config();
+const { neon } = require('@neondatabase/serverless');
 
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',
-  logging: false,
-  dialectOptions: {
-    ssl: { require: true, rejectUnauthorized: false }
+const sql = neon(process.env.DATABASE_URL);
+
+// Sequelize-compatible interface so all controllers work unchanged
+const sequelize = {
+  query: async (query, options = {}) => {
+    const bind = options.bind || options.replacements || [];
+    const rows = await sql(query, bind);
+    return [rows, null];
   },
-  pool: { max: 10, min: 0, acquire: 30000, idle: 10000 }
-});
+  authenticate: async () => {
+    await sql`SELECT 1`;
+  }
+};
 
 module.exports = sequelize;

@@ -10,6 +10,7 @@
     "seed": "node scripts/seed.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "bcryptjs": "^2.4.3",
     "bull": "^4.11.5",
     "cloudinary": "^1.37.3",
@@ -27,7 +28,7 @@
     "node-cron": "^3.0.2",
     "nodemailer": "^6.9.4",
     "pdfkit": "^0.14.0",
-    "pg": "^8.20.0",
+    "pg": "^8.11.3",
     "pg-hstore": "^2.3.4",
     "redis": "^4.6.7",
     "sequelize": "^6.32.1",
