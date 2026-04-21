@@ -14,17 +14,19 @@ const adminLinks  = [
 ];
 const teacherLinks = [
   { label: 'Overview',    id: 'overview'    },
+  { label: 'Live Class',  id: 'live'        },
   { label: 'Sessions',    id: 'sessions'    },
   { label: 'Homework',    id: 'homework'    },
   { label: 'Submissions', id: 'submissions' },
   { label: 'Leave',       id: 'leave'       },
 ];
 const studentLinks = [
-  { label: 'Overview',  id: 'overview'  },
-  { label: 'Sessions',  id: 'sessions'  },
-  { label: 'Homework',  id: 'homework'  },
-  { label: 'Videos',    id: 'videos'    },
-  { label: 'Leave',     id: 'leave'     },
+  { label: 'Overview',   id: 'overview'  },
+  { label: 'Live Class', id: 'live'      },
+  { label: 'Sessions',   id: 'sessions'  },
+  { label: 'Homework',   id: 'homework'  },
+  { label: 'Videos',     id: 'videos'    },
+  { label: 'Leave',      id: 'leave'     },
 ];
 
 const Sidebar = ({ active, setActive }) => {
@@ -45,7 +47,7 @@ const Sidebar = ({ active, setActive }) => {
     return () => clearInterval(interval);
   }, [showJoin]);
 
-  const AUDIO_RELAY = 'http://localhost:3000';
+  const AUDIO_RELAY = import.meta.env.VITE_CLASSROOM_URL || 'https://online-teaching-platform-1-j4f0.onrender.com';
   const page = user?.role === 'teacher' ? 'teacher.html' : 'student.html';
 
   const handleJoinClass = () => {

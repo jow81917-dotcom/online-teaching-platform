@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import HomeworkCreator from './HomeworkCreator';
 import SubmissionsReview from './SubmissionsReview';
+import LiveClassManager from './LiveClassManager';
 import LeaveRequest from './LeaveRequest';
 
 const TeacherDashboard = ({ activeTab, setActiveTab }) => {
@@ -74,6 +75,7 @@ const TeacherDashboard = ({ activeTab, setActiveTab }) => {
         </div>
       )}
 
+      {activeTab === 'live'        && <LiveClassManager />}
       {activeTab === 'homework'    && <HomeworkCreator sessions={sessions} onCreated={() => axios.get('/api/homework').then(r => setHomework(r.data))} />}
       {activeTab === 'submissions' && <SubmissionsReview homework={homework} />}
       {activeTab === 'leave'       && <LeaveRequest sessions={sessions} />}

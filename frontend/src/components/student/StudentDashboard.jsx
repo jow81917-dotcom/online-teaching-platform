@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import HomeworkViewer from './HomeworkViewer';
 import VideoLibrary from './VideoLibrary';
+import LiveClassViewer from './LiveClassViewer';
 import LeaveRequest from './LeaveRequest';
 
 const StudentDashboard = ({ activeTab, setActiveTab }) => {
@@ -74,6 +75,7 @@ const StudentDashboard = ({ activeTab, setActiveTab }) => {
         </div>
       )}
 
+      {activeTab === 'live'     && <LiveClassViewer />}
       {activeTab === 'homework' && <HomeworkViewer homework={homework} />}
       {activeTab === 'videos'   && <VideoLibrary />}
       {activeTab === 'leave'    && <LeaveRequest sessions={sessions} />}
