@@ -498,10 +498,11 @@ uploadBtn.onclick = async () => {
     const res  = await fetch(`${SERVER_URL}/upload`, { method: "POST", body: fd });
     const data = await res.json();
     if (data.error) { alert(data.error); return; }
-    materialImg.src = data.url;
+    const absoluteUrl = data.url.startsWith('http') ? data.url : `${SERVER_URL}${data.url}`;
+    materialImg.src = absoluteUrl;
     materialImg.style.display = "block";
     noMaterial.style.display = "none";
-    socket.emit("share-material", { roomId, url: data.url });
+    socket.emit("share-material", { roomId, url: absoluteUrl });
     materialImg.onload = resizeCanvas;
   } catch { alert("Upload failed"); }
 };

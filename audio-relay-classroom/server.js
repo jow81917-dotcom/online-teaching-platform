@@ -118,7 +118,10 @@ io.on("connection", (socket) => {
       material: room.material
     });
 
-    if (room.material) socket.emit("material-shared", room.material);
+    // Send material separately to guarantee student receives it
+    if (room.material) {
+      socket.emit("material-shared", { url: room.material.url });
+    }
 
     // Tell teacher a new student arrived so teacher can initiate WebRTC offer
     if (room.teacherSocketId) {
@@ -254,6 +257,7 @@ io.on("connection", (socket) => {
     const data = { url, sharedAt: Date.now() };
     room.material = data;
     io.to(roomId).emit("material-shared", data);
+    console.log(`[material] shared in ${roomId}: ${url}`);
   });
 
   socket.on("draw", ({ roomId, x, y, color, width }) => {

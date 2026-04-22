@@ -97,7 +97,7 @@ socket.on("student-joined", ({ hasTeacher, activeSpeaker, material }) => {
     teacherStatus.className = "status-value inactive";
   }
   updateActiveSpeakerUI(activeSpeaker, activeSpeaker === "teacher" ? "Teacher" : "Student");
-  if (material) showMaterial(material.url);
+  if (material) showMaterial(material.url || material);
   updateAudioWarning();
 });
 
@@ -105,6 +105,7 @@ socket.on("teacher-arrived", () => {
   console.log("[student] teacher has arrived");
   teacherStatus.textContent = "Teacher Online";
   teacherStatus.className = "status-value active";
+  setAudioStatus("Waiting for broadcast...", false);
 });
 
 socket.on("teacher-left", () => {
