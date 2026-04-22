@@ -32,19 +32,22 @@ const ctx                 = canvas.getContext("2d");
 // ── ICE configuration ─────────────────────────────────────────────────────
 // Multiple verified free TURN providers for redundancy.
 // If one fails auth, the next will be tried automatically.
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.relay.metered.ca:80" },
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "turn:global.relay.metered.ca:80",                    username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turn:global.relay.metered.ca:80?transport=tcp",      username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turn:global.relay.metered.ca:443",                   username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turns:global.relay.metered.ca:443?transport=tcp",    username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" }
-  ],
-  iceTransportPolicy: "all",
-  iceCandidatePoolSize: 10
-};
+const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const ICE_CONFIG = IS_LOCAL
+  ? { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
+  : {
+      iceServers: [
+        { urls: "stun:stun.relay.metered.ca:80" },
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "turn:global.relay.metered.ca:80",                 username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turn:global.relay.metered.ca:80?transport=tcp",   username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turn:global.relay.metered.ca:443",                username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" }
+      ],
+      iceTransportPolicy: "all",
+      iceCandidatePoolSize: 10
+    };
 
 // ── ICE diagnostic logger ─────────────────────────────────────────────────
 function logCandidate(label, c) {
@@ -224,19 +227,23 @@ async function createInboundPeer(fromId, offerSdp) {
   pc.ontrack = ({ streams }) => {
     console.log("[inbound] track received, streams:", streams.length);
     if (!teacherAudio) {
-      teacherAudio = document.createElement("audio");
+      teacherAudio = new Audio();
       teacherAudio.autoplay = true;
       teacherAudio.playsInline = true;
       teacherAudio.muted = false;
       document.body.appendChild(teacherAudio);
-      console.log("[inbound] audio element created and appended to DOM");
     }
     teacherAudio.srcObject = streams[0];
-    console.log("[inbound] srcObject set, audioUnlocked:", audioUnlocked);
-    // Always try play — succeeds if user has interacted, queued otherwise
-    teacherAudio.play()
-      .then(() => console.log("[inbound] play() succeeded"))
-      .catch(e => console.warn("[inbound] play() blocked (needs user gesture):", e.name));
+    // If user already unlocked audio, play immediately
+    if (audioUnlocked) {
+      teacherAudio.play()
+        .then(() => { console.log("[inbound] play() succeeded"); setAudioStatus("Live", true); })
+        .catch(e => console.warn("[inbound] play() failed:", e.name));
+    } else {
+      // Will be played when user clicks Enable Audio
+      console.log("[inbound] track ready, waiting for user gesture to play");
+      setAudioStatus("Click Enable Audio", false);
+    }
   };
 
   try {
@@ -343,10 +350,10 @@ function unlockAudio() {
   audioUnlocked = true;
   updateAudioWarning();
   console.log("[audio] unlocked by user gesture");
-  if (teacherAudio) {
+  if (teacherAudio && teacherAudio.srcObject) {
     teacherAudio.muted = false;
     teacherAudio.play()
-      .then(() => console.log("[audio] play() succeeded after unlock"))
+      .then(() => { console.log("[audio] play() succeeded after unlock"); setAudioStatus("Live", true); })
       .catch(e => console.warn("[audio] play() after unlock:", e));
   }
 }

@@ -37,19 +37,22 @@ const ctx                 = canvas.getContext("2d");
 // ── ICE configuration ─────────────────────────────────────────────────────
 // Multiple verified free TURN providers for redundancy.
 // If one fails auth, the next will be tried automatically.
-const ICE_CONFIG = {
-  iceServers: [
-    { urls: "stun:stun.relay.metered.ca:80" },
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "turn:global.relay.metered.ca:80",                    username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turn:global.relay.metered.ca:80?transport=tcp",      username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turn:global.relay.metered.ca:443",                   username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
-    { urls: "turns:global.relay.metered.ca:443?transport=tcp",    username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" }
-  ],
-  iceTransportPolicy: "all",
-  iceCandidatePoolSize: 10
-};
+const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+const ICE_CONFIG = IS_LOCAL
+  ? { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
+  : {
+      iceServers: [
+        { urls: "stun:stun.relay.metered.ca:80" },
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "turn:global.relay.metered.ca:80",                 username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turn:global.relay.metered.ca:80?transport=tcp",   username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turn:global.relay.metered.ca:443",                username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" },
+        { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "c42ac28730f2eccb2531db32", credential: "Os9aeQUDwLn1A7Qw" }
+      ],
+      iceTransportPolicy: "all",
+      iceCandidatePoolSize: 10
+    };
 
 // ── ICE diagnostic logger ─────────────────────────────────────────────────
 // Logs every candidate gathered so you can see if STUN/TURN are working.
