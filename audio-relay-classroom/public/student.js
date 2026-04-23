@@ -1,37 +1,35 @@
 // =============================================================================
-// STUDENT — WebRTC Audio Classroom
+// STUDENT — WebRTC Audio Classroom with Fixed Drawing Sync
 // =============================================================================
 
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get("room") || "test";
 let studentName = urlParams.get("name") || "Student-" + Math.random().toString(36).substr(2, 6);
 
-document.getElementById("roomDisplay").textContent = roomId;
-document.getElementById("studentNameDisplay").textContent = studentName;
-
 const SERVER_URL = window.location.origin;
 const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
 
-// ── DOM refs ──────────────────────────────────────────────────────────────
-const connectionStatus    = document.getElementById("connectionStatus");
-const teacherStatus       = document.getElementById("teacherStatus");
-const audioStatus         = document.getElementById("audioStatus");
-const visualizer          = document.getElementById("audioVisualizer");
-const testAudioBtn        = document.getElementById("testAudioBtn");
-const unlockAudioBtn      = document.getElementById("unlockAudioBtn");
-const audioWarning        = document.getElementById("audioWarning");
-const raiseHandBtn        = document.getElementById("raiseHandBtn");
-const cancelHandBtn       = document.getElementById("cancelHandBtn");
-const speakingIndicator   = document.getElementById("speakingIndicator");
-const activeSpeakerDisplay= document.getElementById("activeSpeakerDisplay");
-const materialImg         = document.getElementById("material");
-const canvas              = document.getElementById("materialCanvas");
-const noMaterial          = document.getElementById("noMaterial");
-const ctx                 = canvas.getContext("2d");
+// ── DOM refs (DrawCall style) ──────────────────────────────────────────────
+const imageContainer = document.getElementById('image-container');
+const bgImage        = document.getElementById('bg-image');
+const canvas         = document.getElementById('draw-canvas');
+const ctx            = canvas.getContext('2d');
+const placeholder    = document.getElementById('placeholder');
+const btnHand        = document.getElementById('btn-hand');
+const btnCall        = document.getElementById('btn-call');
+const pillAudio      = document.getElementById('pill-audio');
+const pillSpeaking   = document.getElementById('pill-speaking');
+const toast          = document.getElementById('toast');
+const audioUnlockOverlay = document.getElementById('audio-unlock-overlay');
+const unlockAudioBtn     = document.getElementById('unlockAudioBtn');
+const teacherDot         = document.getElementById('teacherDot');
+const teacherStatusText  = document.getElementById('teacherStatusText');
+const speakerDisplay     = document.getElementById('speakerDisplay');
+const roomDisplaySpan    = document.getElementById('roomDisplay');
+
+roomDisplaySpan.textContent = `Room: ${roomId}`;
 
 // ── ICE configuration ─────────────────────────────────────────────────────
-// Multiple verified free TURN providers for redundancy.
-// If one fails auth, the next will be tried automatically.
 const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 const ICE_CONFIG = IS_LOCAL
   ? { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
@@ -49,7 +47,6 @@ const ICE_CONFIG = IS_LOCAL
       iceCandidatePoolSize: 10
     };
 
-// ── ICE diagnostic logger ─────────────────────────────────────────────────
 function logCandidate(label, c) {
   if (!c) return;
   const type = c.type || "?";
@@ -61,9 +58,84 @@ function logCandidate(label, c) {
   if (type === "srflx") console.log(`%c[ICE][${label}] ✅ STUN srflx candidate gathered`, "color:blue");
 }
 
+function preferOpus(sdp) {
+  const lines = sdp.split("\r\n");
+  let opusPayload = null;
+  for (const line of lines) {
+    const m = line.match(/^a=rtpmap:(\d+) opus\/48000/i);
+    if (m) { opusPayload = m[1]; break; }
+  }
+  if (!opusPayload) return sdp;
+  const result = [];
+  for (const line of lines) {
+    if (line.startsWith("m=audio")) {
+      const parts = line.split(" ");
+      const payloads = parts.slice(3).filter(p => p !== opusPayload);
+      result.push([...parts.slice(0, 3), opusPayload, ...payloads].join(" "));
+      continue;
+    }
+    if (line.startsWith(`a=fmtp:${opusPayload}`)) {
+      result.push(`a=fmtp:${opusPayload} minptime=10;useinbandfec=1;stereo=0;maxaveragebitrate=32000`);
+      continue;
+    }
+    result.push(line);
+  }
+  if (!sdp.includes(`a=fmtp:${opusPayload}`)) {
+    const idx = result.findIndex(l => l.startsWith(`a=rtpmap:${opusPayload}`));
+    if (idx !== -1) result.splice(idx + 1, 0, `a=fmtp:${opusPayload} minptime=10;useinbandfec=1;stereo=0;maxaveragebitrate=32000`);
+  }
+  return result.join("\r\n");
+}
+
+function flushIceBuf(peer, label) {
+  while (peer.iceBuf.length) {
+    const c = peer.iceBuf.shift();
+    peer.pc.addIceCandidate(new RTCIceCandidate(c))
+      .catch(e => console.warn(`[ice:${label}] flush:`, e));
+  }
+}
+
+function showToast(msg, bgColor, textColor) {
+  toast.textContent = msg;
+  toast.style.background = bgColor || 'rgba(0,0,0,0.8)';
+  toast.style.color = textColor || '#fff';
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+// ── Canvas resize for drawing sync ────────────────────────────────────────
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  if (canvas.width !== rect.width || canvas.height !== rect.height) {
+    const saved = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    if (saved.width > 0 && saved.height > 0) {
+      try { ctx.putImageData(saved, 0, 0); } catch(e) {}
+    }
+  }
+}
+
+// FIXED: Drawing State for Student with proper coordinate scaling
+let currentDrawX = 0;
+let currentDrawY = 0;
+let lastReceivedColor = '#ffffff';
+let lastReceivedWidth = 4;
+
+// Helper function to scale coordinates from teacher canvas to student canvas
+function scaleCoordinates(x, y) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: x * scaleX,
+    y: y * scaleY
+  };
+}
+
 // ── State ─────────────────────────────────────────────────────────────────
-let inboundPeer  = null;   // { pc, iceBuf[], restartTimer }
-let outboundPeer = null;   // { pc, iceBuf[] }
+let inboundPeer  = null;
+let outboundPeer = null;
 let teacherAudio = null;
 let localStream  = null;
 
@@ -71,53 +143,56 @@ let myId          = null;
 let teacherId     = null;
 let handRaised    = false;
 let canSpeak      = false;
+let audioEnabled  = false;
+let isInCall      = false;
 let audioUnlocked = false;
 
 // ── Socket ────────────────────────────────────────────────────────────────
 socket.on("connect", () => {
   myId = socket.id;
-  connectionStatus.textContent = "Connected";
-  connectionStatus.className = "status-badge connected";
-  socket.emit("join-as-student", roomId, studentName);
   console.log("[student] socket connected:", socket.id);
+  socket.emit("join-as-student", roomId, studentName);
+  showToast("Connected to server", "rgba(52,199,89,0.2)", "#34c759");
 });
 
 socket.on("disconnect", () => {
-  connectionStatus.textContent = "Disconnected";
-  connectionStatus.className = "status-badge disconnected";
-  teacherStatus.textContent = "Disconnected";
-  teacherStatus.className = "status-value inactive";
+  console.log("[student] disconnected");
+  updateTeacherStatus(false);
+  updateCallState(false);
+  closeInboundPeer();
   closeOutboundPeer();
+  showToast("Disconnected from server", "rgba(255,69,58,0.2)", "#ff453a");
 });
 
 socket.on("student-joined", ({ hasTeacher, activeSpeaker, material }) => {
-  console.log("[student] joined room. hasTeacher:", hasTeacher, "activeSpeaker:", activeSpeaker);
-  if (hasTeacher) {
-    teacherStatus.textContent = "Teacher Online";
-    teacherStatus.className = "status-value active";
-  } else {
-    teacherStatus.textContent = "Waiting for teacher...";
-    teacherStatus.className = "status-value inactive";
-  }
-  updateActiveSpeakerUI(activeSpeaker, activeSpeaker === "teacher" ? "Teacher" : "Student");
+  console.log("[student] joined room. hasTeacher:", hasTeacher);
+  updateTeacherStatus(hasTeacher);
+  updateActiveSpeakerUI(activeSpeaker);
   if (material) showMaterial(material.url || material);
-  updateAudioWarning();
 });
 
 socket.on("teacher-arrived", () => {
   console.log("[student] teacher has arrived");
-  teacherStatus.textContent = "Teacher Online";
-  teacherStatus.className = "status-value active";
-  setAudioStatus("Waiting for broadcast...", false);
+  updateTeacherStatus(true);
+  showToast("Teacher is online", "rgba(52,199,89,0.2)", "#34c759");
 });
 
 socket.on("teacher-left", () => {
   console.log("[student] teacher left");
-  teacherStatus.textContent = "Teacher Offline";
-  teacherStatus.className = "status-value inactive";
-  setAudioStatus("No Audio", false);
+  updateTeacherStatus(false);
+  updateCallState(false);
   closeInboundPeer();
   closeOutboundPeer();
+  showToast("Teacher left the session", "rgba(255,69,58,0.2)", "#ff453a");
+});
+
+socket.on("session-ended", () => {
+  console.log("[student] session ended by schedule");
+  closeInboundPeer();
+  closeOutboundPeer();
+  updateCallState(false);
+  showToast("⏰ Session time is up", "rgba(255,204,0,0.8)", "#ffcc00");
+  setTimeout(() => { window.location.href = '/dashboard'; }, 3000);
 });
 
 // ── WebRTC signaling ──────────────────────────────────────────────────────
@@ -138,7 +213,6 @@ socket.on("webrtc-answer-student", ({ sdp }) => {
     .catch(e => console.error("[outbound] setRemoteDescription:", e));
 });
 
-// ICE candidates — buffer until remote description is ready
 socket.on("ice-candidate", ({ candidate, peerType }) => {
   const peer = peerType === "outbound" ? outboundPeer : inboundPeer;
   if (!peer || !candidate) return;
@@ -153,14 +227,6 @@ socket.on("ice-candidate", ({ candidate, peerType }) => {
     peer.iceBuf.push(candidate);
   }
 });
-
-function flushIceBuf(peer, label) {
-  while (peer.iceBuf.length) {
-    const c = peer.iceBuf.shift();
-    peer.pc.addIceCandidate(new RTCIceCandidate(c))
-      .catch(e => console.warn(`[ice:${label}] flush:`, e));
-  }
-}
 
 // ── Inbound peer: receive teacher audio ───────────────────────────────────
 async function createInboundPeer(fromId, offerSdp) {
@@ -198,22 +264,21 @@ async function createInboundPeer(fromId, offerSdp) {
 
     if (s === "connected") {
       console.log("%c[inbound] ✅ CONNECTED — audio should be flowing", "color:green;font-weight:bold");
-      setAudioStatus("Live", true);
-      // Guarantee audio plays once connection is confirmed
-      if (teacherAudio) {
+      updateCallState(true);
+      if (teacherAudio && audioUnlocked) {
         teacherAudio.play().catch(e => console.warn("[inbound] play() on connected:", e));
       }
     }
 
     if (s === "failed") {
       console.warn("[inbound] ❌ FAILED — restarting ICE");
-      setAudioStatus("Reconnecting...", false);
+      updateCallState(false);
       pc.restartIce();
     }
 
     if (s === "disconnected") {
       console.warn("[inbound] disconnected — will restart in 4s if not recovered");
-      setAudioStatus("Reconnecting...", false);
+      updateCallState(false);
       inboundPeer.restartTimer = setTimeout(() => {
         if (pc.connectionState !== "connected" && pc.connectionState !== "closed") {
           console.warn("[inbound] still disconnected, forcing ICE restart");
@@ -223,7 +288,6 @@ async function createInboundPeer(fromId, offerSdp) {
     }
   };
 
-  // Track arrives — wire up audio element
   pc.ontrack = ({ streams }) => {
     console.log("[inbound] track received, streams:", streams.length);
     if (!teacherAudio) {
@@ -234,15 +298,12 @@ async function createInboundPeer(fromId, offerSdp) {
       document.body.appendChild(teacherAudio);
     }
     teacherAudio.srcObject = streams[0];
-    // If user already unlocked audio, play immediately
     if (audioUnlocked) {
       teacherAudio.play()
-        .then(() => { console.log("[inbound] play() succeeded"); setAudioStatus("Live", true); })
+        .then(() => { console.log("[inbound] play() succeeded"); updateCallState(true); })
         .catch(e => console.warn("[inbound] play() failed:", e.name));
     } else {
-      // Will be played when user clicks Enable Audio
       console.log("[inbound] track ready, waiting for user gesture to play");
-      setAudioStatus("Click Enable Audio", false);
     }
   };
 
@@ -251,6 +312,7 @@ async function createInboundPeer(fromId, offerSdp) {
     console.log("[inbound] remote desc set, flushing", inboundPeer.iceBuf.length, "buffered candidates");
     flushIceBuf(inboundPeer, "inbound");
     const answer = await pc.createAnswer();
+    answer.sdp = preferOpus(answer.sdp);
     await pc.setLocalDescription(answer);
     socket.emit("webrtc-answer", { targetId: fromId, sdp: pc.localDescription });
     console.log("[inbound] answer sent");
@@ -270,7 +332,7 @@ function closeInboundPeer() {
     teacherAudio.remove();
     teacherAudio = null;
   }
-  setAudioStatus("No Audio", false);
+  updateCallState(false);
 }
 
 // ── Outbound peer: send mic to teacher when approved ──────────────────────
@@ -291,7 +353,7 @@ async function createOutboundPeer(toTeacherId) {
     console.log("[outbound] mic acquired");
   } catch (e) {
     console.error("[outbound] getUserMedia:", e);
-    alert("Microphone error: " + e.message);
+    showToast("Microphone access denied", "rgba(229,32,46,0.2)", "#ff453a");
     return;
   }
 
@@ -319,8 +381,18 @@ async function createOutboundPeer(toTeacherId) {
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     console.log("[outbound] conn:", s);
-    if (s === "connected") console.log("%c[outbound] ✅ CONNECTED — mic flowing to teacher", "color:green;font-weight:bold");
-    if (s === "failed") { console.warn("[outbound] ❌ FAILED — restarting ICE"); pc.restartIce(); }
+    if (s === "connected") {
+      console.log("%c[outbound] ✅ CONNECTED — mic flowing to teacher", "color:green;font-weight:bold");
+      pillSpeaking.classList.add('show');
+    }
+    if (s === "failed") { 
+      console.warn("[outbound] ❌ FAILED — restarting ICE"); 
+      pc.restartIce();
+      pillSpeaking.classList.remove('show');
+    }
+    if (s === "closed" || s === "disconnected") {
+      pillSpeaking.classList.remove('show');
+    }
   };
 
   try {
@@ -336,124 +408,290 @@ async function createOutboundPeer(toTeacherId) {
 function closeOutboundPeer() {
   if (localStream)  { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   if (outboundPeer) { outboundPeer.pc.close(); outboundPeer = null; }
+  pillSpeaking.classList.remove('show');
 }
 
-// ── Audio status helper ───────────────────────────────────────────────────
-function setAudioStatus(text, active) {
-  audioStatus.textContent = text;
-  audioStatus.className = "status-value " + (active ? "active" : "inactive");
-}
-
-// ── Audio unlock ──────────────────────────────────────────────────────────
-function unlockAudio() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-  updateAudioWarning();
-  console.log("[audio] unlocked by user gesture");
-  if (teacherAudio && teacherAudio.srcObject) {
-    teacherAudio.muted = false;
-    teacherAudio.play()
-      .then(() => { console.log("[audio] play() succeeded after unlock"); setAudioStatus("Live", true); })
-      .catch(e => console.warn("[audio] play() after unlock:", e));
+// ── UI Update Functions ───────────────────────────────────────────────────
+function updateTeacherStatus(online) {
+  if (online) {
+    teacherDot.classList.add('online');
+    teacherStatusText.textContent = 'Teacher Online';
+  } else {
+    teacherDot.classList.remove('online');
+    teacherStatusText.textContent = 'Teacher Offline';
   }
 }
 
-function updateAudioWarning() {
-  if (audioWarning) audioWarning.style.display = audioUnlocked ? "none" : "block";
+function updateCallState(active) {
+  isInCall = active;
+  if (active && audioEnabled) {
+    btnCall.classList.add('in-call');
+    btnCall.classList.add('audio-on');
+    btnCall.innerHTML = '🎙️';
+    pillAudio.classList.add('show');
+  } else if (active && !audioEnabled) {
+    btnCall.classList.add('in-call');
+    btnCall.classList.remove('audio-on');
+    btnCall.innerHTML = '🔇';
+    pillAudio.classList.remove('show');
+  } else if (!active) {
+    btnCall.classList.remove('in-call');
+    btnCall.classList.remove('audio-on');
+    btnCall.innerHTML = '🔇';
+    pillAudio.classList.remove('show');
+  }
 }
 
-if (unlockAudioBtn) unlockAudioBtn.onclick = e => { e.stopPropagation(); unlockAudio(); };
-document.addEventListener("click", unlockAudio, { once: true });
+function updateAudioEnabledState(enabled) {
+  audioEnabled = enabled;
+  if (enabled && isInCall) {
+    btnCall.classList.add('in-call');
+    btnCall.classList.add('audio-on');
+    btnCall.innerHTML = '🎙️';
+    pillAudio.classList.add('show');
+  } else if (!enabled && isInCall) {
+    btnCall.classList.add('in-call');
+    btnCall.classList.remove('audio-on');
+    btnCall.innerHTML = '🔇';
+    pillAudio.classList.remove('show');
+  } else if (!enabled && !isInCall) {
+    btnCall.classList.remove('in-call');
+    btnCall.classList.remove('audio-on');
+    btnCall.innerHTML = '🔇';
+    pillAudio.classList.remove('show');
+  }
+}
 
-testAudioBtn.onclick = async (e) => {
+function updateHandButtonState() {
+  if (canSpeak) {
+    btnHand.classList.add('speaking');
+    btnHand.classList.remove('raised');
+    btnHand.innerHTML = '🎤';
+  } else if (handRaised) {
+    btnHand.classList.add('raised');
+    btnHand.classList.remove('speaking');
+    btnHand.innerHTML = '✋';
+  } else {
+    btnHand.classList.remove('raised', 'speaking');
+    btnHand.innerHTML = '✋';
+  }
+}
+
+function updateActiveSpeakerUI(speakerId) {
+  if (speakerId === "teacher") {
+    speakerDisplay.innerHTML = '👨🏫 Teacher speaking';
+  } else if (speakerId === myId) {
+    speakerDisplay.innerHTML = '🎤 You are speaking';
+  } else {
+    speakerDisplay.innerHTML = '👨🎓 Student speaking';
+  }
+}
+
+// ── Audio Unlock (Browser Autoplay Policy) ────────────────────────────────
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  audioUnlockOverlay.classList.add('hidden');
+  console.log("[audio] unlocked by user gesture");
+  
+  if (teacherAudio && teacherAudio.srcObject) {
+    teacherAudio.muted = false;
+    teacherAudio.play()
+      .then(() => { 
+        console.log("[audio] play() succeeded after unlock"); 
+        updateCallState(true);
+        updateAudioEnabledState(true);
+      })
+      .catch(e => console.warn("[audio] play() after unlock:", e));
+  }
+  
+  showToast("Audio enabled! You can now hear the teacher", "rgba(52,199,89,0.2)", "#34c759");
+}
+
+unlockAudioBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   unlockAudio();
-  try {
-    const ac = new (window.AudioContext || window.webkitAudioContext)();
-    await ac.resume();
-    const osc = ac.createOscillator(), gain = ac.createGain();
-    osc.type = "sine"; osc.frequency.value = 440; gain.gain.value = 0.1;
-    osc.connect(gain); gain.connect(ac.destination);
-    osc.start(); osc.stop(ac.currentTime + 0.5);
-    setTimeout(() => ac.close(), 700);
-  } catch (e) { console.error("[test]", e); }
-};
+});
 
-// ── Raise-hand ────────────────────────────────────────────────────────────
-raiseHandBtn.onclick = () => {
-  socket.emit("raise-hand", roomId);
-  handRaised = true;
-  raiseHandBtn.disabled = true;
-  cancelHandBtn.disabled = false;
-};
+document.addEventListener('click', () => {
+  if (!audioUnlocked) unlockAudio();
+}, { once: true });
 
-cancelHandBtn.onclick = () => {
-  socket.emit("cancel-hand", roomId);
-  handRaised = false;
-  raiseHandBtn.disabled = false;
-  cancelHandBtn.disabled = true;
-};
+// ── Raise Hand / Cancel Hand ──────────────────────────────────────────────
+btnHand.addEventListener('click', () => {
+  if (canSpeak) {
+    showToast("You are already speaking", "rgba(255,204,0,0.2)", "#ffcc00");
+    return;
+  }
+  
+  if (handRaised) {
+    socket.emit("cancel-hand", roomId);
+    handRaised = false;
+    updateHandButtonState();
+    showToast("Hand request cancelled", "rgba(255,255,255,0.2)", "#fff");
+  } else {
+    socket.emit("raise-hand", roomId);
+    handRaised = true;
+    updateHandButtonState();
+    showToast("Hand raised! Waiting for teacher...", "rgba(255,204,0,0.2)", "#ffcc00");
+  }
+});
 
+// ── Call/Audio Button ─────────────────────────────────────────────────────
+btnCall.addEventListener('click', async () => {
+  if (!audioUnlocked) {
+    unlockAudio();
+    return;
+  }
+  
+  if (isInCall && audioEnabled) {
+    if (teacherAudio) {
+      teacherAudio.muted = true;
+    }
+    audioEnabled = false;
+    updateAudioEnabledState(false);
+    showToast("Audio muted", "rgba(255,255,255,0.2)", "#fff");
+  } else if (isInCall && !audioEnabled) {
+    if (teacherAudio) {
+      teacherAudio.muted = false;
+      teacherAudio.play().catch(e => console.warn);
+    }
+    audioEnabled = true;
+    updateAudioEnabledState(true);
+    showToast("Audio enabled", "rgba(52,199,89,0.2)", "#34c759");
+  } else if (!isInCall) {
+    showToast("Waiting for teacher to start broadcast...", "rgba(255,204,0,0.2)", "#ffcc00");
+  }
+});
+
+// ── Socket Events for Hand/Speaker ────────────────────────────────────────
 socket.on("speak-approved", ({ teacherSocketId }) => {
   console.log("[student] speak approved, teacher:", teacherSocketId);
   canSpeak = true;
   handRaised = false;
-  raiseHandBtn.disabled = true;
-  cancelHandBtn.disabled = true;
-  speakingIndicator.style.display = "block";
   teacherId = teacherSocketId;
+  updateHandButtonState();
   createOutboundPeer(teacherSocketId);
+  showToast("You are now speaking! 🎤", "rgba(22,194,74,0.2)", "#16c24a");
 });
 
 socket.on("speak-revoked", () => {
+  console.log("[student] speak revoked");
   canSpeak = false;
-  raiseHandBtn.disabled = false;
-  cancelHandBtn.disabled = true;
-  speakingIndicator.style.display = "none";
+  handRaised = false;
+  updateHandButtonState();
   closeOutboundPeer();
+  showToast("You are no longer speaking", "rgba(255,69,58,0.2)", "#ff453a");
 });
 
 socket.on("hand-rejected", () => {
   handRaised = false;
-  raiseHandBtn.disabled = false;
-  cancelHandBtn.disabled = true;
-  alert("Your request to speak was declined.");
+  updateHandButtonState();
+  showToast("Your request to speak was declined", "rgba(255,69,58,0.2)", "#ff453a");
 });
 
-socket.on("speaker-changed", ({ speakerId, speakerName }) => {
-  updateActiveSpeakerUI(speakerId, speakerName);
-  if (speakerId !== myId) {
-    speakingIndicator.style.display = "none";
+socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
+  updateActiveSpeakerUI(speakerId);
+  if (speakerId !== myId && canSpeak) {
     canSpeak = false;
+    handRaised = false;
+    updateHandButtonState();
+    closeOutboundPeer();
+  }
+  if (speakerId === myId && !canSpeak) {
+    canSpeak = true;
+    updateHandButtonState();
   }
 });
 
-function updateActiveSpeakerUI(speakerId, speakerName) {
-  activeSpeakerDisplay.innerHTML = speakerId === "teacher"
-    ? '<span class="speaker-indicator teacher">👨🏫 Teacher speaking</span>'
-    : `<span class="speaker-indicator student">👨🎓 ${speakerName} speaking</span>`;
-}
-
-// ── Material ──────────────────────────────────────────────────────────────
+// ── Material & Drawing Sync (FIXED - Proper Y-axis scaling) ─────────────
 socket.on("material-shared", ({ url }) => showMaterial(url));
 
 function showMaterial(url) {
-  materialImg.src = url;
-  materialImg.style.display = "block";
-  noMaterial.style.display = "none";
-  materialImg.onload = () => {
-    canvas.width  = materialImg.naturalWidth;
-    canvas.height = materialImg.naturalHeight;
-    canvas.style.width  = "100%";
-    canvas.style.height = "auto";
+  bgImage.src = url;
+  bgImage.style.display = 'block';
+  imageContainer.style.display = 'flex';
+  placeholder.style.display = 'none';
+  
+  bgImage.onload = () => {
+    resizeCanvas();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.beginPath();
   };
 }
 
-socket.on("draw", ({ x, y, color, width }) => {
-  ctx.lineWidth = width; ctx.lineCap = "round"; ctx.strokeStyle = color;
-  ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+// FIXED: Drawing events from teacher with proper coordinate scaling
+socket.on("draw-begin", ({ x, y, color, width }) => {
+  // Scale coordinates to match student's canvas size
+  const scaled = scaleCoordinates(x, y);
+  
+  // Start a new path - prevents connecting to previous strokes
+  ctx.beginPath();
+  
+  // Set drawing styles
+  ctx.lineWidth = width;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = color;
+  
+  // Move to starting position
+  ctx.moveTo(scaled.x, scaled.y);
+  
+  // Store current position for draw events
+  currentDrawX = scaled.x;
+  currentDrawY = scaled.y;
+  lastReceivedColor = color;
+  lastReceivedWidth = width;
+  
+  // Draw starting dot
+  ctx.beginPath();
+  ctx.arc(scaled.x, scaled.y, width / 2, 0, Math.PI * 2);
+  ctx.fillStyle = color;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(scaled.x, scaled.y);
 });
-socket.on("clear-canvas", () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.beginPath(); });
+
+socket.on("draw", ({ x, y, color, width }) => {
+  // Scale coordinates to match student's canvas size
+  const scaled = scaleCoordinates(x, y);
+  
+  // Use provided color/width or fall back to last received
+  const useColor = color || lastReceivedColor;
+  const useWidth = width || lastReceivedWidth;
+  
+  ctx.lineWidth = useWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = useColor;
+  
+  // Draw line from last position to new position
+  ctx.beginPath();
+  ctx.moveTo(currentDrawX, currentDrawY);
+  ctx.lineTo(scaled.x, scaled.y);
+  ctx.stroke();
+  
+  // Update current position
+  currentDrawX = scaled.x;
+  currentDrawY = scaled.y;
+  lastReceivedColor = useColor;
+  lastReceivedWidth = useWidth;
+});
+
+socket.on("draw-end", () => {
+  // End the current path - next draw-begin will start a fresh path
+  ctx.beginPath();
+});
+
+socket.on("clear-canvas", () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+});
+
+// ── Window resize handling ────────────────────────────────────────────────
+window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
+window.addEventListener('load', () => setTimeout(resizeCanvas, 100));
+
+resizeCanvas();
 
 console.log("[student] ready, room:", roomId);

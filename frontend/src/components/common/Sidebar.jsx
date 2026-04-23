@@ -32,6 +32,7 @@ const studentLinks = [
 const Sidebar = ({ active, setActive }) => {
   const { user } = useAuth();
   const [liveData, setLiveData] = useState(null);
+  const [now, setNow] = useState(new Date());
   const showJoin = user?.role === 'teacher' || user?.role === 'student';
   const links = user?.role === 'admin' ? adminLinks : user?.role === 'teacher' ? teacherLinks : studentLinks;
 
@@ -43,51 +44,108 @@ const Sidebar = ({ active, setActive }) => {
         .catch(() => {});
     };
     check();
-    const interval = setInterval(check, 60000); // re-check every minute
+    const interval = setInterval(check, 30000);
     return () => clearInterval(interval);
   }, [showJoin]);
 
-  const AUDIO_RELAY = import.meta.env.VITE_CLASSROOM_URL || 'https://online-teaching-platform-1-j4f0.onrender.com';
+  // Tick every second for live countdown
+  useEffect(() => {
+    if (!showJoin) return;
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, [showJoin]);
+
+  const AUDIO_RELAY = import.meta.env.VITE_CLASSROOM_URL || 'http://localhost:3000';
   const page = user?.role === 'teacher' ? 'teacher.html' : 'student.html';
 
-  const handleJoinClass = () => {
-    if (!liveData) return;
+  const handleJoinClass = async () => {
+    // Always fetch fresh live data before joining to avoid stale session IDs
+    let fresh = liveData;
+    try {
+      const r = await axios.get('/api/sessions/my/live');
+      fresh = r.data;
+      setLiveData(fresh);
+    } catch { /* use existing liveData */ }
 
-    if (liveData.session) {
-      const room = liveData.session.room_name || liveData.session.id;
-      window.open(`${AUDIO_RELAY}/${page}?room=${encodeURIComponent(room)}`, '_blank');
+    if (!fresh?.session) {
+      // Use validNext: ignore any next session whose end has already passed
+      const nextSession = fresh?.next && new Date(fresh.next.scheduled_end) > new Date()
+        ? fresh.next : null;
+
+      if (nextSession) {
+        const start     = new Date(nextSession.scheduled_start);
+        const diffMs    = start - new Date();
+        const totalSecs = Math.floor(diffMs / 1000);
+        const hrs  = Math.floor(totalSecs / 3600);
+        const mins = Math.floor((totalSecs % 3600) / 60);
+        const secs = totalSecs % 60;
+        let timeStr;
+        if (hrs > 0)       timeStr = `${hrs}h ${mins}m`;
+        else if (mins > 0) timeStr = `${mins} minute${mins !== 1 ? 's' : ''}`;
+        else if (secs > 0) timeStr = `${secs} second${secs !== 1 ? 's' : ''}`;
+        else               timeStr = 'now';
+        toast(`⏰ Next class "${nextSession.title}" starts in ${timeStr}`, {
+          duration: 5000,
+          style: { background: '#1e1b4b', color: '#fff', borderRadius: '10px' }
+        });
+      } else {
+        toast('📅 No upcoming sessions scheduled.', {
+          duration: 4000,
+          style: { background: '#1e1b4b', color: '#fff', borderRadius: '10px' }
+        });
+      }
       return;
     }
 
-    if (liveData.next) {
-      const start = new Date(liveData.next.scheduled_start);
-      const now = new Date();
-      const diffMs = start - now;
-      const diffMins = Math.floor(diffMs / 60000);
-      const diffHrs = Math.floor(diffMins / 60);
-      const remMins = diffMins % 60;
-
-      let timeStr = '';
-      if (diffHrs > 0) timeStr = `${diffHrs}h ${remMins}m`;
-      else timeStr = `${diffMins} minute${diffMins !== 1 ? 's' : ''}`;
-
-      toast(`⏰ Next class "${liveData.next.title}" starts in ${timeStr}`, {
-        duration: 5000,
-        style: { background: '#1e1b4b', color: '#fff', borderRadius: '10px' }
-      });
-      return;
+    try {
+      const { data } = await axios.get(`/api/sessions/classroom/join/${fresh.session.id}`);
+      window.open(data.url, '_blank');
+    } catch (err) {
+      const msg = err.response?.data?.message;
+      if (msg) {
+        toast.error(msg, { style: { background: '#1e1b4b', color: '#fff' } });
+      } else {
+        const room = fresh.session.room_name || fresh.session.id;
+        const name = encodeURIComponent(user?.full_name || user?.role || 'User');
+        window.open(`${AUDIO_RELAY}/${page}?room=${encodeURIComponent(room)}&name=${name}`, '_blank');
+      }
     }
-
-    toast('📅 No upcoming sessions scheduled.', {
-      duration: 4000,
-      style: { background: '#1e1b4b', color: '#fff', borderRadius: '10px' }
-    });
   };
 
-  const isLive = liveData?.session != null;
+  // A session is only considered live if its end time hasn't passed yet
+  const isLive = liveData?.session != null && new Date(liveData.session.scheduled_end) > now;
+
+  const JOIN_WINDOW_MS = 15 * 60 * 1000;
+
+  // Ignore next session if its end time has already passed (stale liveData)
+  const validNext = liveData?.next && new Date(liveData.next.scheduled_end) > now
+    ? liveData.next : null;
+
+  const nextOpenCountdown = (() => {
+    if (isLive || !validNext) return null;
+    const start      = new Date(validNext.scheduled_start);
+    const opensAt    = new Date(start.getTime() - JOIN_WINDOW_MS);
+    const diffToOpen  = opensAt - now;
+    const diffToStart = start - now;
+
+    if (diffToOpen > 0) {
+      const s = Math.floor(diffToOpen / 1000);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      if (h > 0) return `opens in ${h}h ${m}m`;
+      return `opens in ${m}m ${String(s % 60).padStart(2,'0')}s`;
+    }
+    if (diffToStart > 0) {
+      const s = Math.floor(diffToStart / 1000);
+      const m = Math.floor(s / 60);
+      return `starts in ${m}m ${String(s % 60).padStart(2,'0')}s`;
+    }
+    return null;
+  })();
 
   const handleDemo = () => {
-    window.open(`${AUDIO_RELAY}/${page}?room=test`, '_blank');
+    const name = encodeURIComponent(user?.full_name || user?.role || 'User');
+    window.open(`${AUDIO_RELAY}/${page}?room=demo&name=${name}`, '_blank');
   };
 
   return (
@@ -147,6 +205,11 @@ const Sidebar = ({ active, setActive }) => {
           {isLive && (
             <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: '0.72rem', textAlign: 'center', marginTop: '0.4rem' }}>
               {liveData.session.title}
+            </p>
+          )}
+          {!isLive && validNext && nextOpenCountdown && (
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.7rem', textAlign: 'center', marginTop: '0.4rem' }}>
+              {validNext.title} — {nextOpenCountdown}
             </p>
           )}
           <button

@@ -350,3 +350,64 @@ CREATE INDEX IF NOT EXISTS idx_admin_actions_target ON admin_actions(target_user
 INSERT INTO users (id, email, password_hash, full_name, role, is_active)
 VALUES ('admin-001', 'admin@school.com', '$2b$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'admin', 1)
 ON CONFLICT (id) DO NOTHING;
+
+
+-- 1. Drop the default first
+ALTER TABLE sessions
+  ALTER COLUMN auto_ended DROP DEFAULT;
+
+-- 2. Change type using numeric comparison
+ALTER TABLE sessions
+  ALTER COLUMN auto_ended TYPE BOOLEAN USING (auto_ended <> 0);
+
+-- 3. Re-add the correct boolean default
+ALTER TABLE sessions
+  ALTER COLUMN auto_ended SET DEFAULT false;
+
+-- 4. Backfill room_name for existing sessions missing it
+UPDATE sessions
+SET room_name = 'room-' || REPLACE(id, '-', '')
+WHERE room_name IS NULL;
+
+-- 5. Fix sessions stuck in wrong status
+UPDATE sessions
+SET status = 'active',
+    actual_start_time = COALESCE(actual_start_time, NOW())
+WHERE status = 'scheduled'
+  AND scheduled_start <= NOW()
+  AND scheduled_end > NOW();
+
+UPDATE sessions
+SET status = 'cancelled'
+WHERE status = 'scheduled'
+  AND scheduled_end < NOW();
+
+UPDATE sessions
+SET status = 'completed',
+    auto_ended = true,
+    actual_end_time = COALESCE(actual_end_time, NOW())
+WHERE status = 'active'
+  AND (scheduled_end + (grace_period_minutes || ' minutes')::INTERVAL) < NOW();
+
+-- 6. Verify
+SELECT id, title, status, room_name, auto_ended, scheduled_start, scheduled_end
+FROM sessions
+ORDER BY scheduled_start DESC
+LIMIT 20;
+
+
+-- Fix sessions stored without timezone conversion (UTC+3 offset)
+UPDATE sessions
+SET 
+  scheduled_start = scheduled_start - INTERVAL '3 hours',
+  scheduled_end   = scheduled_end   - INTERVAL '3 hours'
+WHERE status IN ('scheduled', 'active')
+  AND created_at > '2026-01-01';
+
+-- Verify
+SELECT id, title, status, scheduled_start, scheduled_end,
+  NOW() AS db_now,
+  scheduled_start <= NOW() + INTERVAL '15 minutes' AS in_window,
+  scheduled_end > NOW() AS not_ended
+FROM sessions
+WHERE room_name = 'room-36bf1bf68c';

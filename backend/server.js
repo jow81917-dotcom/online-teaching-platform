@@ -80,7 +80,11 @@ io.on('connection', (socket) => {
 const cron = require('node-cron');
 const automationEngine = require('./src/services/automationEngine');
 
-cron.schedule('* * * * *',  () => { automationEngine.checkSessionStatuses(); automationEngine.autoEndExpiredSessions(); });
+cron.schedule('* * * * *',  () => {
+  automationEngine.checkSessionStatuses();
+  automationEngine.autoEndExpiredSessions();
+  automationEngine.cancelMissedSessions();
+});
 cron.schedule('0 * * * *',  () => { automationEngine.checkHomeworkCleanup(); });
 cron.schedule('*/5 * * * *',() => { automationEngine.sendPendingNotifications(); });
 

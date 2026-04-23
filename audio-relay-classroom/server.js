@@ -23,6 +23,45 @@ fs.ensureDirSync(publicUploadsDir);
 app.use(express.static("public"));
 app.use(express.json({ limit: "50mb" }));
 
+// ── Room validation endpoint ───────────────────────────────────────────────
+app.get("/api/room-info/:roomId", (req, res) => {
+  const room = rooms.get(req.params.roomId);
+  res.json({
+    roomId: req.params.roomId,
+    exists: !!room,
+    hasTeacher: room ? !!room.teacherSocketId : false,
+    studentCount: room ? room.students.size : 0
+  });
+});
+
+// ── Session end enforcement ────────────────────────────────────────────────
+// Rooms store their scheduled_end so the server can auto-terminate them
+const roomSchedule = new Map(); // roomId → { scheduledEnd: Date, timer: TimeoutId }
+
+app.post("/api/room-schedule", (req, res) => {
+  const { roomId, scheduledEnd } = req.body;
+  if (!roomId || !scheduledEnd) return res.status(400).json({ error: 'roomId and scheduledEnd required' });
+
+  // Clear any existing timer for this room
+  const existing = roomSchedule.get(roomId);
+  if (existing?.timer) clearTimeout(existing.timer);
+
+  const endTime = new Date(scheduledEnd);
+  const msUntilEnd = endTime - Date.now();
+
+  if (msUntilEnd <= 0) return res.json({ ok: true, message: 'already ended' });
+
+  const timer = setTimeout(() => {
+    console.log(`[schedule] session ended for room ${roomId}`);
+    io.to(roomId).emit('session-ended', { roomId, reason: 'scheduled_end' });
+    roomSchedule.delete(roomId);
+  }, msUntilEnd);
+
+  roomSchedule.set(roomId, { scheduledEnd: endTime, timer });
+  console.log(`[schedule] room ${roomId} will end in ${Math.round(msUntilEnd/1000)}s`);
+  res.json({ ok: true, msUntilEnd });
+});
+
 // ── File upload (images only) ──────────────────────────────────────────────
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadsDir),
@@ -136,31 +175,22 @@ io.on("connection", (socket) => {
   });
 
   // ── WebRTC signaling relay ─────────────────────────────────────────────
-  // All SDP and ICE messages are forwarded to the specified target socket.
-  // The server never inspects audio — it only routes envelopes.
-
-  // Teacher → Student: offer for teacher-to-student stream
   socket.on("webrtc-offer", ({ targetId, sdp }) => {
     io.to(targetId).emit("webrtc-offer", { fromId: socket.id, sdp });
   });
 
-  // Student → Teacher: answer for teacher-to-student stream
   socket.on("webrtc-answer", ({ targetId, sdp }) => {
     io.to(targetId).emit("webrtc-answer", { fromId: socket.id, sdp });
   });
 
-  // Student → Teacher: offer for student-to-teacher stream (when approved)
   socket.on("webrtc-offer-student", ({ targetId, sdp }) => {
     io.to(targetId).emit("webrtc-offer-student", { fromId: socket.id, sdp });
   });
 
-  // Teacher → Student: answer for student-to-teacher stream
   socket.on("webrtc-answer-student", ({ targetId, sdp }) => {
     io.to(targetId).emit("webrtc-answer-student", { fromId: socket.id, sdp });
   });
 
-  // ICE candidates — relay to target, preserving peerType so receiver
-  // knows which RTCPeerConnection (inbound vs outbound) to add it to
   socket.on("ice-candidate", ({ targetId, candidate, peerType }) => {
     io.to(targetId).emit("ice-candidate", { fromId: socket.id, candidate, peerType });
   });
@@ -190,7 +220,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Teacher approves student → student will initiate a new peer connection to teacher
   socket.on("approve-speaker", ({ roomId, studentId }) => {
     const room = getRoom(roomId);
     if (!room || socket.role !== "teacher") return;
@@ -207,14 +236,10 @@ io.on("connection", (socket) => {
       isTeacher: false
     });
 
-    // Tell the student they can now open their mic and send an offer.
-    // Include teacherSocketId so student can send the WebRTC offer directly
-    // without a separate get-teacher-id round trip.
     io.to(studentId).emit("speak-approved", { teacherSocketId: socket.id });
     console.log(`[approve] ${student.name} approved in ${roomId}`);
   });
 
-  // Teacher rejects hand raise
   socket.on("reject-hand", ({ roomId, studentId }) => {
     const room = getRoom(roomId);
     if (!room || socket.role !== "teacher") return;
@@ -223,7 +248,6 @@ io.on("connection", (socket) => {
     io.to(studentId).emit("hand-rejected");
   });
 
-  // Teacher revokes speaking permission
   socket.on("revoke-speaker", (roomId) => {
     const room = getRoom(roomId);
     if (!room || socket.role !== "teacher") return;
@@ -241,7 +265,6 @@ io.on("connection", (socket) => {
     console.log(`[revoke] speaker revoked in ${roomId}`);
   });
 
-  // ── Teacher requests current student list (after mic starts) ───────────
   socket.on("teacher-broadcasting", () => {
     const room = getRoom(socket.roomId);
     if (!room || socket.role !== "teacher") return;
@@ -260,12 +283,32 @@ io.on("connection", (socket) => {
     console.log(`[material] shared in ${roomId}: ${url}`);
   });
 
+  // ── DRAWING EVENT HANDLERS (FIXED WITH STROKE BOUNDARIES) ───────────────
+  // These three events work together to prevent unwanted line connections
+  // between separate drawing strokes on student canvases
+  
+  socket.on("draw-begin", ({ roomId, x, y, color, width }) => {
+    if (socket.roomId) {
+      socket.to(roomId).emit("draw-begin", { x, y, color, width });
+    }
+  });
+
   socket.on("draw", ({ roomId, x, y, color, width }) => {
-    if (socket.roomId) socket.to(roomId).emit("draw", { x, y, color, width });
+    if (socket.roomId) {
+      socket.to(roomId).emit("draw", { x, y, color, width });
+    }
+  });
+
+  socket.on("draw-end", ({ roomId }) => {
+    if (socket.roomId) {
+      socket.to(roomId).emit("draw-end");
+    }
   });
 
   socket.on("clear-canvas", (roomId) => {
-    if (socket.roomId) io.to(roomId).emit("clear-canvas");
+    if (socket.roomId) {
+      io.to(roomId).emit("clear-canvas");
+    }
   });
 
   // ── Disconnect ─────────────────────────────────────────────────────────

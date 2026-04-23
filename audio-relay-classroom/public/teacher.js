@@ -1,42 +1,54 @@
 // =============================================================================
-// TEACHER — WebRTC Audio Classroom
+// TEACHER — WebRTC Audio Classroom + DrawCall Canvas Integration
 // =============================================================================
 
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get("room") || "test";
-document.getElementById("roomDisplay").textContent = roomId;
 
 const SERVER_URL = window.location.origin;
 const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
 
-// ── DOM refs ──────────────────────────────────────────────────────────────
-const connectionStatus    = document.getElementById("connectionStatus");
-const startAudioBtn       = document.getElementById("startAudioBtn");
-const stopAudioBtn        = document.getElementById("stopAudioBtn");
-const micStatus           = document.getElementById("micStatus");
-const broadcastStatus     = document.getElementById("broadcastStatus");
-const visualizer          = document.getElementById("audioVisualizer");
-const studentCountEl      = document.getElementById("studentCount");
-const studentsList        = document.getElementById("studentsList");
-const pendingRequestsList = document.getElementById("pendingRequestsList");
-const activeSpeakerDisplay= document.getElementById("activeSpeakerDisplay");
-const revokeSpeakerBtn    = document.getElementById("revokeSpeakerBtn");
-const fileInput           = document.getElementById("fileInput");
-const uploadBtn           = document.getElementById("uploadMaterial");
-const clearMaterialBtn    = document.getElementById("clearMaterial");
-const materialImg         = document.getElementById("material");
-const noMaterial          = document.getElementById("noMaterial");
-const penToggle           = document.getElementById("penToggle");
-const penNormalBtn        = document.getElementById("penNormal");
-const penBoldBtn          = document.getElementById("penBold");
-const colorPicker         = document.getElementById("colorPicker");
-const clearCanvasBtn      = document.getElementById("clearCanvas");
-const canvas              = document.getElementById("materialCanvas");
-const ctx                 = canvas.getContext("2d");
+// ── DOM refs (DrawCall + Teacher) ──────────────────────────────────────────
+// DrawCall elements
+const imageContainer = document.getElementById('image-container');
+const bgImage        = document.getElementById('bg-image');
+const canvas         = document.getElementById('draw-canvas');
+const ctx            = canvas.getContext('2d');
+const placeholder    = document.getElementById('placeholder');
+const blobColor      = document.getElementById('blob-color');
+const blobFile       = document.getElementById('blob-file');
+const colorPopup     = document.getElementById('color-popup');
+const colorDot       = document.getElementById('blob-color-dot');
+const swatchGrid     = document.getElementById('swatch-grid');
+const hexInput       = document.getElementById('hex-input');
+const hexPreviewBox  = document.getElementById('hex-preview-box');
+const sliderSize     = document.getElementById('slider-size');
+const penSizeVal     = document.getElementById('pen-size-val');
+const sizeFill       = document.getElementById('size-fill');
+const sizeDotPreview = document.getElementById('size-dot-preview');
+const btnPen         = document.getElementById('btn-pen');
+const btnHand        = document.getElementById('btn-hand');
+const btnCall        = document.getElementById('btn-call');
+const btnClear       = document.getElementById('btn-clear');
+const pillPen        = document.getElementById('pill-pen');
+const pillMic        = document.getElementById('pill-mic');
+const pillSpeaking   = document.getElementById('pill-speaking');
+const toast          = document.getElementById('toast');
+const fileInput      = document.getElementById('file-input');
+
+// Teacher sidebar elements
+const studentSidebar   = document.getElementById('studentSidebar');
+const sidebarOverlay   = document.getElementById('sidebarOverlay');
+const closeSidebar     = document.getElementById('closeSidebar');
+const studentsList     = document.getElementById('studentsList');
+const studentCountSpan = document.getElementById('studentCount');
+
+// Pending popup elements
+const pendingPopup     = document.getElementById('pendingPopup');
+const closePopup       = document.getElementById('closePopup');
+const pendingQueueList = document.getElementById('pendingQueueList');
 
 // ── ICE configuration ─────────────────────────────────────────────────────
-// Multiple verified free TURN providers for redundancy.
-// If one fails auth, the next will be tried automatically.
 const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
 const ICE_CONFIG = IS_LOCAL
   ? { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] }
@@ -54,9 +66,30 @@ const ICE_CONFIG = IS_LOCAL
       iceCandidatePoolSize: 10
     };
 
-// ── ICE diagnostic logger ─────────────────────────────────────────────────
-// Logs every candidate gathered so you can see if STUN/TURN are working.
-// candidate.type: "host" = LAN, "srflx" = STUN/public IP, "relay" = TURN
+// ── State ─────────────────────────────────────────────────────────────────
+let localStream    = null;
+let isBroadcasting = false;
+let penActive      = false;
+let isDrawing      = false;
+let lastX = 0, lastY = 0;
+let penColor       = '#ffffff';
+let penSize        = 4;
+let audioCtxViz    = null;
+let analyser       = null;
+let animFrame      = null;
+
+// WebRTC peer state
+const outboundPeers = new Map();
+const inboundPeers  = new Map();
+const inboundAudio  = new Map();
+
+// Student data
+const students = new Map();
+let pendingQueue = [];
+let currentSpeaker = "teacher";
+let teacherMicLive = false;
+
+// ── Helper Functions ──────────────────────────────────────────────────────
 function logCandidate(label, c) {
   if (!c) return;
   const type = c.type || "?";
@@ -68,7 +101,6 @@ function logCandidate(label, c) {
   if (type === "srflx") console.log(`%c[ICE][${label}] ✅ STUN srflx candidate gathered`, "color:blue");
 }
 
-// ── Opus SDP helper ───────────────────────────────────────────────────────
 function preferOpus(sdp) {
   const lines = sdp.split("\r\n");
   let opusPayload = null;
@@ -98,93 +130,6 @@ function preferOpus(sdp) {
   return result.join("\r\n");
 }
 
-// ── State ─────────────────────────────────────────────────────────────────
-let localStream    = null;
-let isBroadcasting = false;
-
-// outboundPeers: Map<studentId, { pc, iceBuf[], restartTimer }>
-const outboundPeers = new Map();
-// inboundPeers:  Map<studentId, { pc, iceBuf[] }>
-const inboundPeers  = new Map();
-// inboundAudio:  Map<studentId, HTMLAudioElement>
-const inboundAudio  = new Map();
-
-const pendingRequests = new Map();
-let canDraw = false, penWidth = 2, currentColor = "#ff0000", drawing = false;
-let audioCtxViz = null, analyser = null, animFrame = null;
-
-// ── Socket ────────────────────────────────────────────────────────────────
-socket.on("connect", () => {
-  connectionStatus.textContent = "Connected";
-  connectionStatus.className = "status-badge connected";
-  socket.emit("join-as-teacher", roomId);
-  console.log("[teacher] socket connected:", socket.id);
-});
-
-socket.on("disconnect", () => {
-  connectionStatus.textContent = "Disconnected";
-  connectionStatus.className = "status-badge disconnected";
-  stopBroadcasting();
-});
-
-socket.on("teacher-joined", () => {
-  startAudioBtn.disabled = false;
-  setActiveSpeakerUI("teacher", "Teacher");
-  console.log("[teacher] joined room:", roomId);
-});
-
-// ── Student lifecycle ─────────────────────────────────────────────────────
-socket.on("student-connected", ({ studentId, studentName, totalStudents }) => {
-  studentCountEl.textContent = totalStudents;
-  addStudentRow(studentId, studentName);
-  console.log(`[teacher] student connected: ${studentName} (${studentId.substr(0,6)})`);
-  if (isBroadcasting && localStream) createOutboundPeer(studentId, studentName);
-});
-
-socket.on("student-left", ({ studentId, totalStudents }) => {
-  studentCountEl.textContent = totalStudents;
-  removeStudentRow(studentId);
-  pendingRequests.delete(studentId);
-  renderPendingRequests();
-  closeOutboundPeer(studentId);
-  closeInboundPeer(studentId);
-});
-
-// ── WebRTC signaling ──────────────────────────────────────────────────────
-socket.on("webrtc-answer", ({ fromId, sdp }) => {
-  const entry = outboundPeers.get(fromId);
-  if (!entry) return;
-  console.log(`[out→${fromId.substr(0,6)}] received answer, setting remote desc`);
-  entry.pc.setRemoteDescription(new RTCSessionDescription(sdp))
-    .then(() => {
-      console.log(`[out→${fromId.substr(0,6)}] remote desc set, flushing ${entry.iceBuf.length} buffered candidates`);
-      flushIceBuf(entry, `out→${fromId.substr(0,6)}`);
-    })
-    .catch(e => console.error(`[out→${fromId.substr(0,6)}] setRemoteDescription:`, e));
-});
-
-socket.on("webrtc-offer-student", async ({ fromId, sdp }) => {
-  console.log(`[teacher] inbound offer from student ${fromId.substr(0,6)}`);
-  await createInboundPeer(fromId, sdp);
-});
-
-socket.on("ice-candidate", ({ fromId, candidate, peerType }) => {
-  const entry = peerType === "inbound"
-    ? inboundPeers.get(fromId)
-    : outboundPeers.get(fromId);
-  if (!entry || !candidate) return;
-
-  const label = peerType === "inbound" ? `in←${fromId.substr(0,6)}` : `out→${fromId.substr(0,6)}`;
-  const pc = entry.pc;
-  if (pc.remoteDescription && pc.remoteDescription.type) {
-    pc.addIceCandidate(new RTCIceCandidate(candidate))
-      .catch(e => console.warn(`[${label}] addIceCandidate:`, e));
-  } else {
-    console.log(`[${label}] buffering candidate (no remote desc yet)`);
-    entry.iceBuf.push(candidate);
-  }
-});
-
 function flushIceBuf(entry, label) {
   while (entry.iceBuf.length) {
     const c = entry.iceBuf.shift();
@@ -193,7 +138,135 @@ function flushIceBuf(entry, label) {
   }
 }
 
-// ── Outbound peer: teacher → student ─────────────────────────────────────
+function showToast(msg, color, bg, border) {
+  toast.textContent = msg;
+  toast.style.color = color || '#fff';
+  toast.style.background = bg || 'rgba(0,0,0,0.8)';
+  toast.style.border = border ? `1px solid ${border}` : '1px solid rgba(255,255,255,0.1)';
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+// ── DrawCall Canvas Functions ─────────────────────────────────────────────
+const SWATCHES = [
+  '#ffffff','#e5e5e5','#a3a3a3','#737373','#404040','#1a1a1a','#000000',
+  '#ff0000','#ff3b30','#ff6b35','#ff9500','#ffcc00','#ffe566','#fff3b0',
+  '#00ff00','#34c759','#00c7be','#007aff','#0a84ff','#5e5ce6','#bf5af2',
+  '#ff2d55','#ff375f','#ff6ef7','#ff9ff3','#74b9ff','#a29bfe','#fd79a8',
+  '#55efc4','#00b894','#fdcb6e','#e17055','#d63031','#6c5ce7','#2d3436',
+];
+
+function buildSwatches() {
+  SWATCHES.forEach(hex => {
+    const s = document.createElement('div');
+    s.className = 'swatch';
+    s.style.background = hex;
+    s.dataset.hex = hex;
+    if (hex === penColor) s.classList.add('selected');
+    s.addEventListener('click', () => selectSwatch(hex, s));
+    swatchGrid.appendChild(s);
+  });
+}
+
+function selectSwatch(hex, el) {
+  document.querySelectorAll('.swatch').forEach(s => s.classList.remove('selected'));
+  if (el) el.classList.add('selected');
+  penColor = hex;
+  hexInput.value = hex.toUpperCase();
+  hexInput.classList.remove('invalid');
+  applyColorUI(hex);
+}
+
+function applyColorUI(hex) {
+  colorDot.style.background = hex;
+  hexPreviewBox.style.background = hex;
+  blobColor.style.background = hex;
+  sizeDotPreview.style.background = hex;
+  const lum = (parseInt(hex.slice(1,3),16)/255 * 0.299) + (parseInt(hex.slice(3,5),16)/255 * 0.587) + (parseInt(hex.slice(5,7),16)/255 * 0.114);
+  colorDot.style.borderColor = lum > 0.45 ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)';
+  colorDot.style.boxShadow = lum > 0.45 ? '0 0 0 3px rgba(0,0,0,0.1)' : '0 0 0 3px rgba(255,255,255,0.2)';
+}
+
+function updateSize() {
+  penSize = parseInt(sliderSize.value);
+  penSizeVal.textContent = penSize + 'px';
+  const pct = ((penSize - 1) / 29) * 100;
+  sizeFill.style.width = pct + '%';
+  const dot = Math.max(5, Math.min(penSize, 24));
+  sizeDotPreview.style.width = dot + 'px';
+  sizeDotPreview.style.height = dot + 'px';
+}
+
+function resizeCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  if (canvas.width !== rect.width || canvas.height !== rect.height) {
+    const saved = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+    if (saved.width > 0 && saved.height > 0) {
+      try { ctx.putImageData(saved, 0, 0); } catch(e) {}
+    }
+  }
+}
+
+function getCanvasPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return {
+    x: (src.clientX - rect.left) * (canvas.width / rect.width),
+    y: (src.clientY - rect.top) * (canvas.height / rect.height)
+  };
+}
+
+// FIXED: Added draw-begin event
+function startDraw(e) {
+  if (!penActive) return;
+  isDrawing = true;
+  const p = getCanvasPos(e);
+  lastX = p.x; lastY = p.y;
+  
+  // Local drawing
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, penSize / 2, 0, Math.PI * 2);
+  ctx.fillStyle = penColor;
+  ctx.fill();
+  
+  // Send draw-begin to students - starts a new stroke
+  socket.emit("draw-begin", { roomId, x: lastX, y: lastY, color: penColor, width: penSize });
+  
+  e.preventDefault();
+}
+
+function draw(e) {
+  if (!penActive || !isDrawing) return;
+  const p = getCanvasPos(e);
+  
+  // Local drawing
+  ctx.beginPath();
+  ctx.moveTo(lastX, lastY);
+  ctx.lineTo(p.x, p.y);
+  ctx.strokeStyle = penColor;
+  ctx.lineWidth = penSize;
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.stroke();
+  
+  // Send draw event to students
+  socket.emit("draw", { roomId, x: p.x, y: p.y, color: penColor, width: penSize });
+  
+  lastX = p.x; lastY = p.y;
+  e.preventDefault();
+}
+
+// FIXED: Added draw-end event
+function stopDraw() { 
+  if (isDrawing) {
+    isDrawing = false;
+    // Send draw-end to students - ends the current stroke
+    socket.emit("draw-end", { roomId });
+  }
+}
+
+// ── WebRTC Outbound Peer (Teacher → Student) ─────────────────────────────
 async function createOutboundPeer(studentId, studentName) {
   closeOutboundPeer(studentId);
   const label = `out→${studentId.substr(0,6)}`;
@@ -203,7 +276,9 @@ async function createOutboundPeer(studentId, studentName) {
   const entry = { pc, iceBuf: [], restartTimer: null };
   outboundPeers.set(studentId, entry);
 
-  localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  if (localStream) {
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  }
 
   pc.onicecandidate = ({ candidate }) => {
     if (candidate) {
@@ -234,7 +309,6 @@ async function createOutboundPeer(studentId, studentName) {
 
     if (s === "failed") {
       console.warn(`[${label}] ❌ FAILED — restarting ICE`);
-      // Full re-offer with iceRestart so new TURN candidates are gathered
       pc.createOffer({ iceRestart: true })
         .then(o => { o.sdp = preferOpus(o.sdp); return pc.setLocalDescription(o); })
         .then(() => {
@@ -278,7 +352,11 @@ function closeOutboundPeer(studentId) {
   }
 }
 
-// ── Inbound peer: approved student → teacher ─────────────────────────────
+function closeAllOutboundPeers() {
+  outboundPeers.forEach((_, id) => closeOutboundPeer(id));
+}
+
+// ── Inbound Peer (Student → Teacher when approved) ───────────────────────
 async function createInboundPeer(studentId, offerSdp) {
   closeInboundPeer(studentId);
   const label = `in←${studentId.substr(0,6)}`;
@@ -309,11 +387,6 @@ async function createInboundPeer(studentId, offerSdp) {
     console.log(`[${label}] conn: ${s}`);
     if (s === "connected") console.log(`%c[${label}] ✅ CONNECTED`, "color:green;font-weight:bold");
     if (s === "failed") { console.warn(`[${label}] ❌ FAILED — restarting ICE`); pc.restartIce(); }
-    if (s === "disconnected") {
-      setTimeout(() => {
-        if (pc.connectionState !== "connected" && pc.connectionState !== "closed") pc.restartIce();
-      }, 4000);
-    }
   };
 
   pc.ontrack = ({ streams }) => {
@@ -350,8 +423,35 @@ function closeInboundPeer(studentId) {
   if (el) { el.srcObject = null; el.remove(); inboundAudio.delete(studentId); }
 }
 
-// ── Mic controls ──────────────────────────────────────────────────────────
-startAudioBtn.onclick = async () => {
+function closeAllInboundPeers() {
+  inboundPeers.forEach((_, id) => closeInboundPeer(id));
+}
+
+// ── Audio Visualizer ─────────────────────────────────────────────────────
+function setupVisualizer() {
+  if (!localStream) return;
+  if (audioCtxViz) {
+    if (animFrame) cancelAnimationFrame(animFrame);
+    audioCtxViz.close();
+  }
+  audioCtxViz = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtxViz.createAnalyser();
+  analyser.fftSize = 256;
+  audioCtxViz.createMediaStreamSource(localStream).connect(analyser);
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const visualizer = document.getElementById('audioVisualizer');
+  if (!visualizer) return;
+  (function tick() {
+    if (!analyser || !isBroadcasting) return;
+    analyser.getByteFrequencyData(data);
+    const avg = data.reduce((a, b) => a + b, 0) / data.length;
+    visualizer.style.setProperty("--width", (avg / 255 * 100) + "%");
+    animFrame = requestAnimationFrame(tick);
+  })();
+}
+
+// ── Broadcast Control ────────────────────────────────────────────────────
+async function startBroadcasting() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -363,213 +463,416 @@ startAudioBtn.onclick = async () => {
       }
     });
     isBroadcasting = true;
-    startAudioBtn.disabled = true;
-    stopAudioBtn.disabled = false;
-    micStatus.textContent = "Active";
-    micStatus.className = "status-value active";
-    broadcastStatus.textContent = "Broadcasting";
-    broadcastStatus.className = "status-value active";
+    teacherMicLive = true;
+    pillMic.classList.add('show');
     setupVisualizer();
     socket.emit("teacher-broadcasting");
-    console.log("[teacher] mic started, broadcasting");
+    showToast("🎙️ Broadcasting started", "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+    
+    students.forEach((info, studentId) => {
+      createOutboundPeer(studentId, info.name);
+    });
   } catch (e) {
     console.error("[teacher] getUserMedia:", e);
-    alert("Microphone error: " + e.message);
+    showToast("❌ Microphone access denied", "#ff6b6b", "rgba(229,32,46,0.12)", "rgba(229,32,46,0.35)");
   }
-};
-
-socket.on("current-students", (students) => {
-  console.log(`[teacher] current students: ${students.length}`);
-  students.forEach(({ studentId, studentName }) => {
-    if (isBroadcasting && localStream) createOutboundPeer(studentId, studentName);
-  });
-});
-
-stopAudioBtn.onclick = () => stopBroadcasting();
+}
 
 function stopBroadcasting() {
-  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
-  if (animFrame)   { cancelAnimationFrame(animFrame); animFrame = null; }
-  outboundPeers.forEach((_, id) => closeOutboundPeer(id));
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop());
+    localStream = null;
+  }
+  if (animFrame) {
+    cancelAnimationFrame(animFrame);
+    animFrame = null;
+  }
+  if (audioCtxViz) {
+    audioCtxViz.close();
+    audioCtxViz = null;
+  }
+  closeAllOutboundPeers();
+  closeAllInboundPeers();
   isBroadcasting = false;
-  startAudioBtn.disabled = false;
-  stopAudioBtn.disabled = true;
-  micStatus.textContent = "Stopped";
-  micStatus.className = "status-value inactive";
-  broadcastStatus.textContent = "Off";
-  broadcastStatus.className = "status-value inactive";
+  teacherMicLive = false;
+  pillMic.classList.remove('show');
+  showToast("📵 Broadcast ended", "rgba(255,255,255,0.5)", "rgba(255,255,255,0.05)", "rgba(255,255,255,0.12)");
 }
 
-// ── Raise-hand / speaker management ──────────────────────────────────────
-socket.on("hand-raised", ({ studentId, studentName }) => {
-  pendingRequests.set(studentId, studentName);
-  renderPendingRequests();
-  visualizer.classList.add("warning");
-  setTimeout(() => visualizer.classList.remove("warning"), 1000);
-});
-
-socket.on("hand-cancelled", ({ studentId }) => {
-  pendingRequests.delete(studentId);
-  renderPendingRequests();
-});
-
-socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
-  setActiveSpeakerUI(speakerId, speakerName);
-  revokeSpeakerBtn.disabled = isTeacher;
-});
-
-function approveSpeaker(studentId) {
-  socket.emit("approve-speaker", { roomId, studentId });
-  pendingRequests.delete(studentId);
-  renderPendingRequests();
-}
-
-function rejectHand(studentId) {
-  socket.emit("reject-hand", { roomId, studentId });
-  pendingRequests.delete(studentId);
-  renderPendingRequests();
-}
-
-revokeSpeakerBtn.onclick = () => {
-  socket.emit("revoke-speaker", roomId);
-  inboundPeers.forEach((_, id) => closeInboundPeer(id));
-};
-
-window.approveSpeaker = approveSpeaker;
-window.rejectHand = rejectHand;
-
-function setActiveSpeakerUI(speakerId, speakerName) {
-  activeSpeakerDisplay.innerHTML = speakerId === "teacher"
-    ? '<span class="speaker-indicator teacher">👨🏫 Teacher</span>'
-    : `<span class="speaker-indicator student">👨🎓 ${speakerName}</span>`;
-}
-
-function renderPendingRequests() {
-  if (!pendingRequestsList) return;
-  if (pendingRequests.size === 0) {
-    pendingRequestsList.innerHTML = '<li class="no-requests">No pending requests</li>';
+// ── Student Management UI ────────────────────────────────────────────────
+function updateStudentList() {
+  if (students.size === 0) {
+    studentsList.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.3); padding:40px;">No students connected</div>';
+    studentCountSpan.textContent = '0';
     return;
   }
-  pendingRequestsList.innerHTML = "";
-  pendingRequests.forEach((name, id) => {
-    const li = document.createElement("li");
-    li.className = "pending-request";
-    li.innerHTML = `<span class="student-name">${name}</span>
-      <div class="request-actions">
-        <button class="approve-btn" onclick="approveSpeaker('${id}')">✓</button>
-        <button class="reject-btn"  onclick="rejectHand('${id}')">✗</button>
-      </div>`;
-    pendingRequestsList.appendChild(li);
+  
+  studentCountSpan.textContent = students.size;
+  let html = '';
+  students.forEach((info, id) => {
+    let statusClass = 'idle';
+    let statusIcon = '';
+    if (currentSpeaker === id) {
+      statusClass = 'speaking';
+      statusIcon = '🎤';
+    } else if (info.handRaised) {
+      statusClass = 'hand-raised';
+      statusIcon = '🙋';
+    } else {
+      statusClass = 'online';
+    }
+    
+    html += `
+      <div class="student-item">
+        <div class="student-info">
+          <div class="student-status ${statusClass}"></div>
+          <span class="student-name">${escapeHtml(info.name)}</span>
+        </div>
+        <div class="student-hand-icon">${statusIcon}</div>
+      </div>
+    `;
+  });
+  studentsList.innerHTML = html;
+}
+
+function escapeHtml(str) {
+  return str.replace(/[&<>]/g, function(m) {
+    if (m === '&') return '&amp;';
+    if (m === '<') return '&lt;';
+    if (m === '>') return '&gt;';
+    return m;
   });
 }
 
-// ── Student list UI ───────────────────────────────────────────────────────
-function addStudentRow(studentId, studentName) {
-  const li = document.createElement("li");
-  li.id = `student-${studentId}`;
-  li.className = "student-item";
-  li.innerHTML = `<span class="student-name">${studentName}</span>
-                  <span class="student-id">(${studentId.substr(0, 6)})</span>`;
-  studentsList.appendChild(li);
-}
-function removeStudentRow(id) { document.getElementById(`student-${id}`)?.remove(); }
-
-// ── Visualizer ────────────────────────────────────────────────────────────
-function setupVisualizer() {
-  if (!localStream) return;
-  audioCtxViz = new (window.AudioContext || window.webkitAudioContext)();
-  analyser = audioCtxViz.createAnalyser();
-  analyser.fftSize = 256;
-  audioCtxViz.createMediaStreamSource(localStream).connect(analyser);
-  const data = new Uint8Array(analyser.frequencyBinCount);
-  (function tick() {
-    if (!analyser) return;
-    analyser.getByteFrequencyData(data);
-    const avg = data.reduce((a, b) => a + b, 0) / data.length;
-    visualizer.style.setProperty("--width", (avg / 255 * 100) + "%");
-    animFrame = requestAnimationFrame(tick);
-  })();
+function updateHandButtonState() {
+  if (currentSpeaker !== "teacher") {
+    btnHand.classList.add('speaking');
+    btnHand.classList.remove('has-pending');
+    pillSpeaking.classList.add('show');
+    pillSpeaking.textContent = `🎤 ${students.get(currentSpeaker)?.name || 'Student'} Speaking`;
+  } else if (pendingQueue.length > 0) {
+    btnHand.classList.add('has-pending');
+    btnHand.classList.remove('speaking');
+    pillSpeaking.classList.remove('show');
+  } else {
+    btnHand.classList.remove('has-pending', 'speaking');
+    pillSpeaking.classList.remove('show');
+  }
 }
 
-// ── Material upload ───────────────────────────────────────────────────────
-uploadBtn.onclick = async () => {
-  const file = fileInput.files[0];
-  if (!file) { alert("Select a file"); return; }
+function updatePendingPopup() {
+  if (pendingQueue.length === 0) {
+    pendingQueueList.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.3); padding:20px;">No pending requests</div>';
+    return;
+  }
+  
+  let html = '';
+  pendingQueue.forEach((item, idx) => {
+    html += `
+      <div class="pending-queue-item">
+        <span style="color:#fff;">${escapeHtml(item.studentName)}</span>
+        <span style="color:#ffcc00; font-size:12px;">🙋 Waiting</span>
+      </div>
+    `;
+  });
+  pendingQueueList.innerHTML = html;
+}
+
+function approveNextStudent() {
+  if (pendingQueue.length === 0) return;
+  
+  const nextStudent = pendingQueue.shift();
+  socket.emit("approve-speaker", { roomId, studentId: nextStudent.studentId });
+  showToast(`✅ Approved ${nextStudent.studentName} to speak`, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+  
+  updatePendingPopup();
+  updateHandButtonState();
+}
+
+function revokeSpeaker() {
+  if (currentSpeaker !== "teacher") {
+    socket.emit("revoke-speaker", roomId);
+    showToast("🔇 Speaker revoked", "rgba(255,255,255,0.5)", "rgba(255,255,255,0.05)", "rgba(255,255,255,0.12)");
+  }
+}
+
+// ── Material Sharing ─────────────────────────────────────────────────────
+async function shareMaterial(file) {
   const fd = new FormData();
   fd.append("file", file);
   try {
-    const res  = await fetch(`${SERVER_URL}/upload`, { method: "POST", body: fd });
+    const res = await fetch(`${SERVER_URL}/upload`, { method: "POST", body: fd });
     const data = await res.json();
-    if (data.error) { alert(data.error); return; }
+    if (data.error) { showToast(data.error, "#ff6b6b"); return; }
     const absoluteUrl = data.url.startsWith('http') ? data.url : `${SERVER_URL}${data.url}`;
-    materialImg.src = absoluteUrl;
-    materialImg.style.display = "block";
-    noMaterial.style.display = "none";
+    bgImage.src = absoluteUrl;
+    imageContainer.style.display = 'flex';
+    placeholder.style.display = 'none';
+    btnClear.style.display = 'block';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setTimeout(() => resizeCanvas(), 50);
     socket.emit("share-material", { roomId, url: absoluteUrl });
-    materialImg.onload = resizeCanvas;
-  } catch { alert("Upload failed"); }
-};
+    showToast("📎 Material shared with students", "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+  } catch (e) {
+    showToast("Upload failed", "#ff6b6b");
+  }
+}
 
-clearMaterialBtn.onclick = () => {
-  materialImg.src = "";
-  materialImg.style.display = "none";
-  noMaterial.style.display = "block";
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  canDraw = false;
-  penToggle.textContent = "🖊️ Enable Drawing";
-  canvas.classList.remove("active");
-};
-
-socket.on("material-shared", ({ url }) => {
-  materialImg.src = url;
-  materialImg.style.display = "block";
-  noMaterial.style.display = "none";
-  materialImg.onload = resizeCanvas;
+// ── Socket Event Handlers ────────────────────────────────────────────────
+socket.on("connect", () => {
+  console.log("[teacher] socket connected:", socket.id);
+  socket.emit("join-as-teacher", roomId);
 });
 
-// ── Drawing ───────────────────────────────────────────────────────────────
-function resizeCanvas() {
-  canvas.width  = materialImg.naturalWidth;
-  canvas.height = materialImg.naturalHeight;
-  canvas.style.width  = "100%";
-  canvas.style.height = "auto";
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-}
-
-penToggle.onclick    = () => { canDraw = !canDraw; canvas.classList.toggle("active", canDraw); penToggle.textContent = canDraw ? "🖊️ Disable Drawing" : "🖊️ Enable Drawing"; };
-penNormalBtn.onclick = () => penWidth = 2;
-penBoldBtn.onclick   = () => penWidth = 5;
-colorPicker.onchange = e => currentColor = e.target.value;
-clearCanvasBtn.onclick = () => { ctx.clearRect(0, 0, canvas.width, canvas.height); socket.emit("clear-canvas", roomId); };
-
-function getPos(e) {
-  const r = canvas.getBoundingClientRect();
-  const src = e.touches ? e.touches[0] : e;
-  if (e.touches) e.preventDefault();
-  return { x: (src.clientX - r.left) * (canvas.width / r.width), y: (src.clientY - r.top) * (canvas.height / r.height) };
-}
-function drawStroke(e) {
-  if (!canDraw) return;
-  e.preventDefault();
-  const { x, y } = getPos(e);
-  ctx.lineWidth = penWidth; ctx.lineCap = "round"; ctx.strokeStyle = currentColor;
-  ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
-  socket.emit("draw", { roomId, x, y, color: currentColor, width: penWidth });
-}
-
-canvas.addEventListener("mousedown",  e => { if (!canDraw) return; drawing = true;  ctx.beginPath(); drawStroke(e); });
-canvas.addEventListener("mousemove",  e => { if (!canDraw || !drawing) return; drawStroke(e); });
-canvas.addEventListener("mouseup",    () => { drawing = false; ctx.beginPath(); });
-canvas.addEventListener("mouseout",   () => { drawing = false; ctx.beginPath(); });
-canvas.addEventListener("touchstart", e => { e.preventDefault(); if (!canDraw) return; drawing = true;  ctx.beginPath(); drawStroke(e); });
-canvas.addEventListener("touchmove",  e => { e.preventDefault(); if (!canDraw || !drawing) return; drawStroke(e); });
-canvas.addEventListener("touchend",   e => { e.preventDefault(); drawing = false; ctx.beginPath(); });
-
-socket.on("draw", ({ x, y, color, width }) => {
-  ctx.lineWidth = width; ctx.lineCap = "round"; ctx.strokeStyle = color;
-  ctx.lineTo(x, y); ctx.stroke(); ctx.beginPath(); ctx.moveTo(x, y);
+socket.on("disconnect", () => {
+  console.log("[teacher] disconnected");
+  stopBroadcasting();
+  btnCall.classList.remove('in-call');
 });
-socket.on("clear-canvas", () => { ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.beginPath(); });
 
-window.addEventListener("beforeunload", stopBroadcasting);
+socket.on("session-ended", () => {
+  console.log("[teacher] session ended by schedule");
+  stopBroadcasting();
+  showToast("⏰ Session time is up", "#ffcc00", "rgba(255,204,0,0.15)", "rgba(255,204,0,0.4)");
+  setTimeout(() => { window.location.href = '/dashboard'; }, 3000);
+});
+
+socket.on("teacher-joined", () => {
+  console.log("[teacher] joined room:", roomId);
+});
+
+socket.on("student-connected", ({ studentId, studentName, totalStudents }) => {
+  students.set(studentId, { name: studentName, handRaised: false, approved: false });
+  updateStudentList();
+  if (isBroadcasting && localStream) {
+    createOutboundPeer(studentId, studentName);
+  }
+  showToast(`📚 ${studentName} joined`, "#6096ff", "rgba(37,99,255,0.12)", "rgba(37,99,255,0.35)");
+});
+
+socket.on("student-left", ({ studentId, studentName, totalStudents }) => {
+  students.delete(studentId);
+  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
+  closeOutboundPeer(studentId);
+  closeInboundPeer(studentId);
+  updateStudentList();
+  updatePendingPopup();
+  updateHandButtonState();
+  showToast(`👋 ${studentName} left`, "rgba(255,255,255,0.5)", "rgba(255,255,255,0.05)", "rgba(255,255,255,0.12)");
+});
+
+socket.on("hand-raised", ({ studentId, studentName }) => {
+  const student = students.get(studentId);
+  if (student) {
+    student.handRaised = true;
+    pendingQueue.push({ studentId, studentName });
+    updateStudentList();
+    updatePendingPopup();
+    updateHandButtonState();
+    showToast(`🙋 ${studentName} raised hand`, "#ffcc00", "rgba(255,204,0,0.12)", "rgba(255,204,0,0.35)");
+  }
+});
+
+socket.on("hand-cancelled", ({ studentId }) => {
+  const student = students.get(studentId);
+  if (student) {
+    student.handRaised = false;
+    pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
+    updateStudentList();
+    updatePendingPopup();
+    updateHandButtonState();
+  }
+});
+
+socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
+  if (isTeacher) {
+    currentSpeaker = "teacher";
+    closeAllInboundPeers();
+  } else {
+    currentSpeaker = speakerId;
+  }
+  updateStudentList();
+  updateHandButtonState();
+  if (!isTeacher) {
+    showToast(`🎤 ${speakerName} is now speaking`, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+  }
+});
+
+socket.on("webrtc-offer-student", async ({ fromId, sdp }) => {
+  console.log(`[teacher] inbound offer from student ${fromId.substr(0,6)}`);
+  await createInboundPeer(fromId, sdp);
+});
+
+socket.on("webrtc-answer", ({ fromId, sdp }) => {
+  const entry = outboundPeers.get(fromId);
+  if (!entry) return;
+  console.log(`[out→${fromId.substr(0,6)}] received answer, setting remote desc`);
+  entry.pc.setRemoteDescription(new RTCSessionDescription(sdp))
+    .then(() => {
+      console.log(`[out→${fromId.substr(0,6)}] remote desc set, flushing ${entry.iceBuf.length} buffered candidates`);
+      flushIceBuf(entry, `out→${fromId.substr(0,6)}`);
+    })
+    .catch(e => console.error(`[out→${fromId.substr(0,6)}] setRemoteDescription:`, e));
+});
+
+socket.on("ice-candidate", ({ fromId, candidate, peerType }) => {
+  const entry = peerType === "inbound"
+    ? inboundPeers.get(fromId)
+    : outboundPeers.get(fromId);
+  if (!entry || !candidate) return;
+
+  const label = peerType === "inbound" ? `in←${fromId.substr(0,6)}` : `out→${fromId.substr(0,6)}`;
+  const pc = entry.pc;
+  if (pc.remoteDescription && pc.remoteDescription.type) {
+    pc.addIceCandidate(new RTCIceCandidate(candidate))
+      .catch(e => console.warn(`[${label}] addIceCandidate:`, e));
+  } else {
+    console.log(`[${label}] buffering candidate (no remote desc yet)`);
+    entry.iceBuf.push(candidate);
+  }
+});
+
+socket.on("current-students", (studentsList) => {
+  studentsList.forEach(({ studentId, studentName }) => {
+    if (!students.has(studentId)) {
+      students.set(studentId, { name: studentName, handRaised: false, approved: false });
+      if (isBroadcasting && localStream) {
+        createOutboundPeer(studentId, studentName);
+      }
+    }
+  });
+  updateStudentList();
+});
+
+// ── UI Event Listeners ───────────────────────────────────────────────────
+btnPen.addEventListener('click', () => {
+  penActive = !penActive;
+  btnPen.classList.toggle('active', penActive);
+  canvas.classList.toggle('pen-active', penActive);
+  pillPen.classList.toggle('show', penActive);
+});
+
+btnHand.addEventListener('click', () => {
+  if (currentSpeaker !== "teacher") {
+    revokeSpeaker();
+  } else if (pendingQueue.length > 0) {
+    approveNextStudent();
+  } else {
+    pendingPopup.classList.add('open');
+    setTimeout(() => {
+      document.addEventListener('click', function closePopupOnClickOutside(e) {
+        if (!pendingPopup.contains(e.target) && !btnHand.contains(e.target)) {
+          pendingPopup.classList.remove('open');
+          document.removeEventListener('click', closePopupOnClickOutside);
+        }
+      });
+    }, 10);
+  }
+});
+
+btnCall.addEventListener('click', () => {
+  if (isBroadcasting) {
+    stopBroadcasting();
+    btnCall.classList.remove('in-call');
+  } else {
+    startBroadcasting();
+    btnCall.classList.add('in-call');
+  }
+});
+
+btnClear.addEventListener('click', () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  socket.emit("clear-canvas", roomId);
+});
+
+blobColor.addEventListener('click', (e) => {
+  e.stopPropagation();
+  colorPopup.classList.toggle('open');
+});
+
+document.addEventListener('click', (e) => {
+  if (!colorPopup.contains(e.target) && !blobColor.contains(e.target)) {
+    colorPopup.classList.remove('open');
+  }
+});
+
+blobFile.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) shareMaterial(file);
+  fileInput.value = '';
+});
+
+hexInput.addEventListener('input', () => {
+  let v = hexInput.value.trim();
+  if (!v.startsWith('#')) v = '#' + v;
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+    hexInput.classList.remove('invalid');
+    penColor = v.toLowerCase();
+    document.querySelectorAll('.swatch').forEach(s => {
+      s.classList.toggle('selected', s.dataset.hex.toLowerCase() === penColor);
+    });
+    applyColorUI(penColor);
+  } else {
+    hexInput.classList.add('invalid');
+  }
+});
+
+sliderSize.addEventListener('input', updateSize);
+
+canvas.addEventListener('mousedown', startDraw);
+canvas.addEventListener('mousemove', draw);
+canvas.addEventListener('mouseup', stopDraw);
+canvas.addEventListener('mouseleave', () => {
+  if (isDrawing) {
+    stopDraw();
+    socket.emit("draw-end", { roomId });
+  }
+});
+canvas.addEventListener('touchstart', startDraw, { passive: false });
+canvas.addEventListener('touchmove', draw, { passive: false });
+canvas.addEventListener('touchend', stopDraw);
+canvas.addEventListener('touchcancel', stopDraw);
+
+let touchStartX = 0;
+let touchStartY = 0;
+const swipeZone = document.getElementById('swipeZone');
+
+if (swipeZone) {
+  swipeZone.addEventListener('touchstart', (e) => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  });
+
+  swipeZone.addEventListener('touchmove', (e) => {
+    if (touchStartX === 0) return;
+    const diffX = e.touches[0].clientX - touchStartX;
+    const diffY = Math.abs(e.touches[0].clientY - touchStartY);
+    if (diffX > 20 && diffY < 50) {
+      studentSidebar.classList.add('open');
+      sidebarOverlay.classList.add('show');
+      touchStartX = 0;
+    }
+  });
+}
+
+function closeSidebarFunc() {
+  studentSidebar.classList.remove('open');
+  sidebarOverlay.classList.remove('show');
+}
+
+closeSidebar.addEventListener('click', closeSidebarFunc);
+sidebarOverlay.addEventListener('click', closeSidebarFunc);
+closePopup.addEventListener('click', () => {
+  pendingPopup.classList.remove('open');
+});
+
+window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
+window.addEventListener('load', () => setTimeout(resizeCanvas, 100));
+
+buildSwatches();
+applyColorUI(penColor);
+updateSize();
+setTimeout(resizeCanvas, 100);
+
 console.log("[teacher] ready, room:", roomId);

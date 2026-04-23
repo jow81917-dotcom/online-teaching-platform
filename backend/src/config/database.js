@@ -5,13 +5,21 @@ const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
 const sequelize = {
-  query: async (query, options = {}) => {
-    const bind = options.bind || options.replacements || [];
-    const rows = await sql.query(query, bind);
-    return [rows, null];
+  query: async (queryStr, options = {}) => {
+    const params = options.bind || options.replacements || [];
+    try {
+      // neon() supports sql.query(text, params) for parameterized queries
+      const rows = await sql.query(queryStr, params);
+      return [rows, null];
+    } catch (e) {
+      console.error('[DB] error:', e.message);
+      throw e;
+    }
   },
+
   authenticate: async () => {
-    await sql`SELECT 1`;
+    await sql.query('SELECT 1', []);
+    console.log('[DB] Neon connected');
   }
 };
 

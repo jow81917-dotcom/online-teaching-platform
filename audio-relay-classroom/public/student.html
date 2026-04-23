@@ -2,70 +2,441 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Student — Audio Classroom</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Student — DrawCall Classroom</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================================
+       STUDENT DRAWCALL STYLES (Matches Teacher UI)
+       ============================================================ */
+    
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --btn-size: 58px;
+      --blob-size: 48px;
+      --top-margin: 32px;
+      --sidebar-width: 280px;
+    }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #111;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-family: 'Outfit', sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── PHONE SHELL ── */
+    #phone {
+      position: relative;
+      width: 100%;
+      max-width: 390px;
+      height: 100vh;
+      max-height: 844px;
+      background: var(--bg);
+      overflow: hidden;
+      box-shadow: 0 0 80px rgba(0,0,0,0.9);
+    }
+
+    /* ── BACKGROUND IMAGE CONTAINER ── */
+    #image-container {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: var(--top-margin);
+      bottom: 0;
+      width: calc(100% - 4px);
+      height: calc(100% - var(--top-margin));
+      z-index: 1;
+      display: none;
+      justify-content: center;
+      align-items: center;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #bg-image {
+      max-width: 100%;
+      max-height: 100%;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+      display: block;
+    }
+
+    /* ── DRAWING CANVAS (Student view-only) ── */
+    #draw-canvas {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      top: var(--top-margin);
+      bottom: 0;
+      width: calc(100% - 4px);
+      height: calc(100% - var(--top-margin));
+      z-index: 2;
+      touch-action: none;
+      cursor: default;
+      pointer-events: none; /* Students cannot draw, only view */
+    }
+
+    /* ── PLACEHOLDER ── */
+    #placeholder {
+      position: absolute;
+      inset: 0;
+      top: var(--top-margin);
+      z-index: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      pointer-events: none;
+      height: calc(100% - var(--top-margin));
+    }
+
+    #placeholder .icon { font-size: 52px; opacity: 0.1; }
+    #placeholder p {
+      font-size: 13px;
+      color: rgba(255,255,255,0.13);
+      font-weight: 300;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* ══════════════════════════════════════
+       STATUS PILLS
+    ══════════════════════════════════════ */
+    #status-bar {
+      position: absolute;
+      top: calc(var(--top-margin) + 68px);
+      right: 16px;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: flex-end;
+    }
+
+    .status-pill {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 10px;
+      border-radius: 20px;
+      opacity: 0;
+      transform: translateX(8px);
+      transition: opacity 0.3s, transform 0.3s;
+      pointer-events: none;
+    }
+
+    .status-pill.show { opacity: 1; transform: translateX(0); }
+
+    #pill-audio {
+      background: rgba(22,194,74,0.15);
+      border: 1px solid rgba(22,194,74,0.4);
+      color: #16c24a;
+    }
+
+    #pill-speaking {
+      background: rgba(37,99,255,0.2);
+      border: 1px solid rgba(37,99,255,0.5);
+      color: #6096ff;
+    }
+
+    /* ══════════════════════════════════════
+       BOTTOM CONTROL BUTTONS (2 buttons only)
+    ══════════════════════════════════════ */
+    #bottom-bar {
+      position: absolute;
+      bottom: 32px;
+      left: 0; right: 0;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 40px;
+    }
+
+    .ctrl-btn {
+      width: var(--btn-size);
+      height: var(--btn-size);
+      border-radius: 50%;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.15s ease, box-shadow 0.25s ease,
+                  background-color 0.4s ease, filter 0.25s ease;
+      position: relative;
+      outline: none;
+      flex-shrink: 0;
+    }
+
+    .ctrl-btn:active { transform: scale(0.87); }
+
+    /* Raise Hand Button */
+    #btn-hand {
+      background: #c68642;
+      box-shadow: 0 4px 20px rgba(198,132,66,0.4);
+      transition: background-color 0.5s ease, box-shadow 0.4s ease;
+    }
+
+    #btn-hand.raised {
+      background: #ffcc00;
+      box-shadow: 0 0 0 3px rgba(255,204,0,0.4), 0 4px 24px rgba(255,204,0,0.8);
+      filter: brightness(1.15);
+    }
+
+    #btn-hand.speaking {
+      background: #16c24a;
+      box-shadow: 0 0 0 3px rgba(22,194,74,0.4), 0 4px 24px rgba(22,194,74,0.8);
+      filter: brightness(1.15);
+    }
+
+    #btn-hand.speaking::after {
+      content: '';
+      position: absolute;
+      inset: -5px;
+      border-radius: 50%;
+      border: 2px solid rgba(22,194,74,0.55);
+      animation: pulse-ring 1.4s ease-out infinite;
+    }
+
+    /* Call/Audio Button */
+    #btn-call {
+      background: #c0392b;
+      box-shadow: 0 4px 20px rgba(192,57,43,0.35);
+      opacity: 0.65;
+      transition: background-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+    }
+
+    #btn-call.in-call {
+      background: #e5202e;
+      box-shadow: 0 0 0 3px rgba(229,32,46,0.4), 0 4px 28px rgba(229,32,46,0.85);
+      opacity: 1;
+      animation: call-shake 2.8s ease-in-out infinite;
+    }
+
+    #btn-call.audio-on {
+      background: #16c24a;
+      box-shadow: 0 0 0 3px rgba(22,194,74,0.4), 0 4px 24px rgba(22,194,74,0.8);
+      opacity: 1;
+      animation: none;
+    }
+
+    /* Toast Notification */
+    #toast {
+      position: absolute;
+      top: calc(var(--top-margin) + 70px);
+      left: 50%;
+      transform: translateX(-50%) translateY(-10px);
+      z-index: 40;
+      border-radius: 12px;
+      padding: 10px 18px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s, transform 0.3s;
+      background: rgba(0,0,0,0.8);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* Audio unlock overlay (for browser autoplay policies) */
+    #audio-unlock-overlay {
+      position: absolute;
+      inset: 0;
+      top: var(--top-margin);
+      z-index: 100;
+      background: rgba(0,0,0,0.95);
+      backdrop-filter: blur(20px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      height: calc(100% - var(--top-margin));
+    }
+
+    #audio-unlock-overlay.hidden {
+      display: none;
+    }
+
+    .unlock-btn {
+      background: #2563ff;
+      border: none;
+      border-radius: 40px;
+      padding: 16px 32px;
+      font-size: 18px;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+      font-family: 'Outfit', sans-serif;
+      box-shadow: 0 4px 20px rgba(37,99,255,0.4);
+      transition: transform 0.15s;
+    }
+
+    .unlock-btn:active { transform: scale(0.95); }
+
+    .unlock-text {
+      color: rgba(255,255,255,0.6);
+      font-size: 14px;
+      text-align: center;
+      padding: 0 20px;
+    }
+
+    /* Teacher status indicator */
+    .teacher-status {
+      position: absolute;
+      top: calc(var(--top-margin) + 12px);
+      left: 16px;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .teacher-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ff453a;
+      transition: background 0.3s;
+    }
+
+    .teacher-dot.online {
+      background: #34c759;
+      box-shadow: 0 0 6px #34c759;
+      animation: pulse-glow 2s infinite;
+    }
+
+    /* Active speaker display */
+    .speaker-display {
+      position: absolute;
+      top: calc(var(--top-margin) + 12px);
+      right: 16px;
+      z-index: 10;
+      background: rgba(0,0,0,0.5);
+      backdrop-filter: blur(8px);
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #fff;
+      pointer-events: none;
+    }
+
+    /* Keyframe Animations */
+    @keyframes pulse-ring {
+      0%   { transform: scale(1);    opacity: 0.7; }
+      100% { transform: scale(1.45); opacity: 0; }
+    }
+
+    @keyframes call-shake {
+      0%,100% { transform: rotate(0deg); }
+      8%   { transform: rotate(-9deg); }
+      16%  { transform: rotate(9deg); }
+      24%  { transform: rotate(-5deg); }
+      32%  { transform: rotate(5deg); }
+      40%,90% { transform: rotate(0deg); }
+    }
+
+    @keyframes pulse-glow {
+      0%,100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Room info */
+    .room-info {
+      position: absolute;
+      top: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(8px);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 10px;
+      color: rgba(255,255,255,0.6);
+      font-family: monospace;
+      pointer-events: none;
+    }
+  </style>
 </head>
 <body>
 
-<div class="page-header">
-  <h1>🎒 Student Panel</h1>
-  <div class="room-info">
-    Room: <strong id="roomDisplay"></strong>
-    &nbsp;|&nbsp;
-    <span id="connectionStatus" class="status-badge disconnected">Disconnected</span>
+<div id="phone">
+  
+  <!-- Room Display -->
+  <div class="room-info" id="roomDisplay">Room: loading...</div>
+  
+  <!-- Teacher Status -->
+  <div class="teacher-status">
+    <div class="teacher-dot" id="teacherDot"></div>
+    <span id="teacherStatusText">Teacher Offline</span>
   </div>
-  <div class="room-info">Name: <strong id="studentNameDisplay"></strong></div>
-</div>
-
-<!-- Audio unlock banner — shown until user taps/clicks -->
-<div id="audioWarning" class="audio-warning">
-  ⚠️ Tap anywhere or press the button below to enable audio.
-  <button id="unlockAudioBtn" class="btn btn-primary">🔊 Enable Audio</button>
-</div>
-
-<div class="main-grid">
-
-  <!-- ── Status ── -->
-  <div class="card">
-    <h2>📡 Status</h2>
-    <div class="status-row">
-      <span class="status-label">Teacher</span>
-      <span id="teacherStatus" class="status-value inactive">Offline</span>
-    </div>
-    <div class="status-row">
-      <span class="status-label">Audio</span>
-      <span id="audioStatus" class="status-value inactive">No Audio</span>
-    </div>
-    <div class="btn-row">
-      <button id="testAudioBtn" class="btn btn-secondary">🔔 Test Audio</button>
-    </div>
-    <div id="audioVisualizer" class="visualizer"></div>
+  
+  <!-- Active Speaker Display -->
+  <div class="speaker-display" id="speakerDisplay">
+    👨🏫 Teacher speaking
   </div>
 
-  <!-- ── Speaker / Hand ── -->
-  <div class="card">
-    <h2>🔊 Active Speaker</h2>
-    <div id="activeSpeakerDisplay"></div>
-    <div id="speakingIndicator" class="speaking-indicator" style="display:none;">
-      🎤 You are speaking
-    </div>
-    <div class="btn-row">
-      <button id="raiseHandBtn"  class="btn btn-primary">✋ Raise Hand</button>
-      <button id="cancelHandBtn" class="btn btn-danger"  disabled>✖ Cancel</button>
-    </div>
+  <!-- Placeholder (before material loads) -->
+  <div id="placeholder">
+    <div class="icon">🖼️</div>
+    <p>Waiting for teacher to share material</p>
   </div>
 
-  <!-- ── Material ── -->
-  <div class="card wide">
-    <h2>📎 Material</h2>
-    <div class="material-wrap">
-      <p id="noMaterial" class="muted">No material shared yet.</p>
-      <div class="canvas-container">
-        <img id="material" style="display:none; max-width:100%;" alt="material">
-        <canvas id="materialCanvas"></canvas>
-      </div>
-    </div>
+  <!-- Background Image Container -->
+  <div id="image-container">
+    <img id="bg-image" alt="background"/>
+  </div>
+
+  <!-- Drawing Canvas (view-only for student) -->
+  <canvas id="draw-canvas"></canvas>
+
+  <!-- Status Pills -->
+  <div id="status-bar">
+    <div class="status-pill" id="pill-audio">🎙️ Audio Live</div>
+    <div class="status-pill" id="pill-speaking">🎤 You are Speaking</div>
+  </div>
+
+  <!-- Bottom Control Bar (2 buttons) -->
+  <div id="bottom-bar">
+    <button class="ctrl-btn" id="btn-hand" title="Raise Hand">✋</button>
+    <button class="ctrl-btn" id="btn-call" title="Enable/Disable Audio">🔇</button>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast"></div>
+
+  <!-- Audio Unlock Overlay (for browser autoplay policies) -->
+  <div id="audio-unlock-overlay">
+    <div class="unlock-text">🔊 Tap to enable audio and hear the teacher</div>
+    <button class="unlock-btn" id="unlockAudioBtn">Enable Audio</button>
   </div>
 
 </div>
