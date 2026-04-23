@@ -60,12 +60,32 @@ const LeaveManagement = () => {
 const SessionsView = () => {
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('all');
-  useEffect(() => { axios.get('/api/sessions').then(r => setSessions(r.data)).catch(() => {}); }, []);
+  const [joining, setJoining] = useState(null);
+  const CLASSROOM_URL = import.meta.env.VITE_CLASSROOM_URL || 'https://online-teaching-platform-1-j4f0.onrender.com';
+
+  useEffect(() => {
+    axios.get('/api/sessions').then(r => setSessions(r.data)).catch(() => {});
+    const t = setInterval(() => axios.get('/api/sessions').then(r => setSessions(r.data)).catch(() => {}), 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  const supervise = async (sessionId, roomName) => {
+    setJoining(sessionId);
+    try {
+      const { data } = await axios.get(`/api/sessions/classroom/join/${sessionId}`);
+      window.open(data.url, '_blank');
+    } catch {
+      // Admin fallback: join as silent observer using student page
+      window.open(`${CLASSROOM_URL}/student.html?room=${encodeURIComponent(roomName || sessionId)}&name=Admin`, '_blank');
+    } finally {
+      setJoining(null);
+    }
+  };
 
   const filtered = filter === 'all' ? sessions : sessions.filter(s => s.status === filter);
   const statusColor = { scheduled: 'var(--primary)', active: 'var(--green-500)', completed: 'var(--gray-500)', cancelled: 'var(--red-500)', replaced: 'var(--yellow-500)' };
   const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
-  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem' };
+  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem', verticalAlign: 'middle' };
 
   return (
     <div className="card p-6">
@@ -80,15 +100,39 @@ const SessionsView = () => {
       {filtered.length === 0 && <p className="text-gray-500 text-sm">No sessions found.</p>}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr><th style={th}>Title</th><th style={th}>Subject</th><th style={th}>Start</th><th style={th}>End</th><th style={th}>Status</th></tr></thead>
+          <thead>
+            <tr>
+              <th style={th}>Title</th>
+              <th style={th}>Subject</th>
+              <th style={th}>Start</th>
+              <th style={th}>End</th>
+              <th style={th}>Status</th>
+              <th style={th}>Action</th>
+            </tr>
+          </thead>
           <tbody>
             {filtered.map(s => (
               <tr key={s.id}>
                 <td style={td}>{s.title}</td>
                 <td style={td}>{s.subject || '—'}</td>
-                <td style={td}>{new Date(s.scheduled_start).toLocaleString()}</td>
-                <td style={td}>{new Date(s.scheduled_end).toLocaleString()}</td>
-                <td style={td}><span style={{ color: statusColor[s.status], fontWeight: 600, textTransform: 'capitalize' }}>{s.status}</span></td>
+                <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_start).toLocaleString()}</td>
+                <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_end).toLocaleString()}</td>
+                <td style={td}>
+                  <span style={{ color: statusColor[s.status], fontWeight: 600, textTransform: 'capitalize' }}>
+                    {s.status}
+                  </span>
+                </td>
+                <td style={td}>
+                  {s.status === 'active' && (
+                    <button
+                      onClick={() => supervise(s.id, s.room_name)}
+                      disabled={joining === s.id}
+                      style={{ padding: '3px 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: joining === s.id ? 0.6 : 1 }}
+                    >
+                      {joining === s.id ? '...' : '👁️ Supervise'}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

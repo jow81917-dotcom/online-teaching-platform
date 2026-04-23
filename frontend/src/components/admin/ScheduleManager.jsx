@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
+const CLASSROOM_URL = import.meta.env.VITE_CLASSROOM_URL || 'https://online-teaching-platform-1-j4f0.onrender.com';
 const EMPTY = { title: '', subject: '', teacher_id: '', student_id: '', scheduled_start: '', scheduled_end: '', description: '' };
 
 // Convert datetime-local string to UTC ISO — only if browser local time differs from UTC
@@ -33,6 +34,19 @@ const ScheduleManager = () => {
   const [filter,    setFilter]    = useState('all');
   const [formError, setFormError] = useState('');
   const [saving,    setSaving]    = useState(false);
+  const [joining,   setJoining]   = useState(null);
+
+  const supervise = async (s) => {
+    setJoining(s.id);
+    try {
+      const { data } = await axios.get(`/api/sessions/classroom/join/${s.id}`);
+      window.open(data.url, '_blank');
+    } catch {
+      window.open(`${CLASSROOM_URL}/student.html?room=${encodeURIComponent(s.room_name || s.id)}&name=Admin`, '_blank');
+    } finally {
+      setJoining(null);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -286,6 +300,15 @@ const ScheduleManager = () => {
                     </td>
                     <td style={td}>
                       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {s.status === 'active' && (
+                          <button
+                            onClick={() => supervise(s)}
+                            disabled={joining === s.id}
+                            style={{ padding: '2px 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
+                          >
+                            {joining === s.id ? '...' : '👁️ Supervise'}
+                          </button>
+                        )}
                         {s.status === 'scheduled' && (
                           <>
                             <button onClick={() => openEdit(s)}
