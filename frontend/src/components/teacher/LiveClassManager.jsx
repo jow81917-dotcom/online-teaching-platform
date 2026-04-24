@@ -55,21 +55,19 @@ const LiveClassManager = () => {
     setJoining(sessionId);
     try {
       const { data } = await axios.get(`/api/sessions/classroom/join/${sessionId}`);
-      window.open(data.url, '_blank');
+      window.location.href = data.url;
     } catch (err) {
       const msg = err.response?.data?.message;
-      if (msg) { toast.error(msg); }
+      if (msg) { toast.error(msg); setJoining(null); }
       else {
         const s = sessions.find(x => x.id === sessionId);
         const room = s?.room_name || sessionId;
-        window.open(`${CLASSROOM_URL}/teacher.html?room=${encodeURIComponent(room)}`, '_blank');
+        window.location.href = `${CLASSROOM_URL}/teacher.html?room=${encodeURIComponent(room)}`;
       }
-    } finally {
-      setJoining(null);
     }
   };
 
-  const startDemo = () => window.open(`${CLASSROOM_URL}/teacher.html?room=demo`, '_blank');
+  const startDemo = () => { window.location.href = `${CLASSROOM_URL}/teacher.html?room=demo`; };
 
   const active = sessions.filter(s => s.status === 'active' || s.status === 'scheduled');
 

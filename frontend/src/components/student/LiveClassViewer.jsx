@@ -53,24 +53,22 @@ const LiveClassViewer = () => {
     setJoining(sessionId);
     try {
       const { data } = await axios.get(`/api/sessions/classroom/join/${sessionId}`);
-      window.open(data.url, '_blank');
+      window.location.href = data.url;
     } catch (err) {
       const msg = err.response?.data?.message;
-      if (msg) { toast.error(msg); }
+      if (msg) { toast.error(msg); setJoining(null); }
       else {
         const s    = sessions.find(x => x.id === sessionId);
         const room = s?.room_name || sessionId;
         const name = encodeURIComponent(user?.full_name || 'Student');
-        window.open(`${CLASSROOM_URL}/student.html?room=${encodeURIComponent(room)}&name=${name}`, '_blank');
+        window.location.href = `${CLASSROOM_URL}/student.html?room=${encodeURIComponent(room)}&name=${name}`;
       }
-    } finally {
-      setJoining(null);
     }
   };
 
   const joinDemo = () => {
     const name = encodeURIComponent(user?.full_name || 'Student');
-    window.open(`${CLASSROOM_URL}/student.html?room=demo&name=${name}`, '_blank');
+    window.location.href = `${CLASSROOM_URL}/student.html?room=demo&name=${name}`;
   };
 
   const active = sessions.filter(s => s.status === 'active' || s.status === 'scheduled');
