@@ -20,6 +20,11 @@ const publicUploadsDir = path.join(__dirname, "public", "uploads");
 fs.ensureDirSync(uploadsDir);
 fs.ensureDirSync(publicUploadsDir);
 
+// Clean up any leftover uploads from previous server runs
+fs.emptyDir(publicUploadsDir).catch(() => {});
+fs.emptyDir(uploadsDir).catch(() => {});
+console.log('[upload] cleaned up leftover uploads on startup');
+
 app.use(express.static("public"));
 app.use(express.json({ limit: "50mb" }));
 
@@ -54,6 +59,9 @@ app.post("/api/room-schedule", (req, res) => {
   const timer = setTimeout(() => {
     console.log(`[schedule] session ended for room ${roomId}`);
     io.to(roomId).emit('session-ended', { roomId, reason: 'scheduled_end' });
+    // Delete uploaded image when session ends by schedule
+    const room = rooms.get(roomId);
+    if (room?.material?.filename) deleteUpload(room.material.filename);
     roomSchedule.delete(roomId);
   }, msUntilEnd);
 
@@ -76,6 +84,14 @@ const upload = multer({
   fileFilter: (req, file, cb) =>
     file.mimetype.startsWith("image/") ? cb(null, true) : cb(new Error("Images only"))
 });
+
+// ── Helper: delete a file from public/uploads by filename ────────────────
+function deleteUpload(filename) {
+  if (!filename) return;
+  const filePath = path.join(publicUploadsDir, filename);
+  fs.remove(filePath).catch(() => {});
+  console.log(`[upload] deleted ${filename}`);
+}
 
 app.post("/upload", upload.single("file"), (req, res) => {
   if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -274,12 +290,17 @@ io.on("connection", (socket) => {
   });
 
   // ── Material sharing ───────────────────────────────────────────────────
-  socket.on("share-material", ({ roomId, url }) => {
+  socket.on("share-material", ({ roomId, url, filename }) => {
     const room = getRoom(roomId);
     if (!room || socket.role !== "teacher") return;
-    const data = { url, sharedAt: Date.now() };
-    room.material = data;
-    io.to(roomId).emit("material-shared", data);
+
+    // Delete previous image for this room before storing the new one
+    if (room.material?.filename) deleteUpload(room.material.filename);
+
+    // Extract filename from URL if not provided explicitly
+    const fname = filename || url.split('/').pop();
+    room.material = { url, filename: fname, sharedAt: Date.now() };
+    io.to(roomId).emit("material-shared", { url });
     console.log(`[material] shared in ${roomId}: ${url}`);
   });
 
@@ -320,6 +341,8 @@ io.on("connection", (socket) => {
 
     if (role === "teacher") {
       io.to(roomId).emit("teacher-left");
+      // Delete the room's uploaded image on teacher disconnect
+      if (room.material?.filename) deleteUpload(room.material.filename);
       rooms.delete(roomId);
       console.log(`[room] ${roomId} closed`);
     } else if (role === "student") {
