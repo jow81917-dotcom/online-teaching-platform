@@ -48,6 +48,15 @@ const ScheduleManager = () => {
     }
   };
 
+  const isSuperviseble = (s) => {
+    if (s.status === 'cancelled' || s.status === 'completed') return false;
+    if (s.status === 'active') return true;
+    const now = new Date();
+    return s.status === 'scheduled'
+      && new Date(s.scheduled_start) <= now
+      && new Date(s.scheduled_end) > now;
+  };
+
   const load = useCallback(async () => {
     try {
       const [s, u] = await Promise.all([axios.get('/api/sessions'), axios.get('/api/users')]);
@@ -300,7 +309,7 @@ const ScheduleManager = () => {
                     </td>
                     <td style={td}>
                       <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {s.status === 'active' && (
+                        {isSuperviseble(s) && (
                           <button
                             onClick={() => supervise(s)}
                             disabled={joining === s.id}

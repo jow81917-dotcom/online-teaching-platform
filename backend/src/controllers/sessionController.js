@@ -74,37 +74,27 @@ exports.getClassroomJoin = async (req, res) => {
     }
 
     if (!isAdmin) {
-      // Compare times in the DB to avoid Node.js server timezone issues
       const [timeCheck] = await sequelize.query(
-        `SELECT 
-           NOW() AS db_now,
-           scheduled_start,
-           scheduled_end,
+        `SELECT
            scheduled_end > NOW() AS not_ended,
-           scheduled_start <= NOW() + INTERVAL '${JOIN_WINDOW_MINUTES} minutes' AS in_window,
            status
          FROM sessions WHERE id = $1`,
         { bind: [req.params.sessionId] }
       );
       const tc = timeCheck[0];
-      console.log(`[join] db_now=${tc.db_now} start=${tc.scheduled_start} end=${tc.scheduled_end} not_ended=${tc.not_ended} in_window=${tc.in_window} status=${tc.status}`);
+      const notEnded = tc.not_ended === true || tc.not_ended === 't';
 
       if (tc.status === 'cancelled') {
         return res.status(403).json({ message: 'This session has been cancelled' });
       }
-      // Neon may return booleans as strings 't'/'f' — handle both
-      const notEnded  = tc.not_ended  === true || tc.not_ended  === 't';
-      const inWindow  = tc.in_window  === true || tc.in_window  === 't';
       if (!notEnded) {
         return res.status(403).json({ message: 'This session has already ended' });
-      }
-      if (!inWindow) {
-        return res.status(403).json({ message: `Class opens ${JOIN_WINDOW_MINUTES} minutes before start` });
       }
     }
 
     const room = session.room_name || session.id;
-    const page = (role === 'teacher' || isAdmin) ? 'teacher.html' : 'student.html';
+    // Admin joins as silent observer (student page) so they can hear the teacher
+    const page = role === 'teacher' ? 'teacher.html' : 'student.html';
 
     // Fetch full_name from DB since JWT doesn't include it
     const [userRows] = await sequelize.query(

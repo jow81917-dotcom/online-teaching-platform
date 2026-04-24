@@ -298,13 +298,21 @@ async function createInboundPeer(fromId, offerSdp) {
       document.body.appendChild(teacherAudio);
     }
     teacherAudio.srcObject = streams[0];
-    if (audioUnlocked) {
-      teacherAudio.play()
-        .then(() => { console.log("[inbound] play() succeeded"); updateCallState(true); })
-        .catch(e => console.warn("[inbound] play() failed:", e.name));
-    } else {
-      console.log("[inbound] track ready, waiting for user gesture to play");
-    }
+    // Always attempt play — browser will allow it if user already clicked unlock
+    teacherAudio.play()
+      .then(() => {
+        console.log("[inbound] play() succeeded");
+        audioEnabled = true;
+        updateCallState(true);
+        updateAudioEnabledState(true);
+        // Hide unlock overlay since audio is now playing
+        audioUnlocked = true;
+        audioUnlockOverlay.classList.add('hidden');
+      })
+      .catch(e => {
+        console.warn("[inbound] play() blocked by autoplay policy, waiting for user gesture:", e.name);
+        // Overlay stays visible so user can click to unlock
+      });
   };
 
   try {
@@ -491,20 +499,19 @@ function updateActiveSpeakerUI(speakerId) {
 function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
+  audioEnabled  = true;
   audioUnlockOverlay.classList.add('hidden');
   console.log("[audio] unlocked by user gesture");
-  
-  if (teacherAudio && teacherAudio.srcObject) {
+
+  // Play immediately if track already arrived
+  if (teacherAudio) {
     teacherAudio.muted = false;
     teacherAudio.play()
-      .then(() => { 
-        console.log("[audio] play() succeeded after unlock"); 
-        updateCallState(true);
-        updateAudioEnabledState(true);
-      })
+      .then(() => { updateCallState(true); updateAudioEnabledState(true); })
       .catch(e => console.warn("[audio] play() after unlock:", e));
   }
-  
+  // If teacherAudio is null, ontrack will play it once the WebRTC track arrives
+
   showToast("Audio enabled! You can now hear the teacher", "rgba(52,199,89,0.2)", "#34c759");
 }
 

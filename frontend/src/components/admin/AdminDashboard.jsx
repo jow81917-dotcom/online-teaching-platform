@@ -82,6 +82,16 @@ const SessionsView = () => {
     }
   };
 
+  const isSuperviseble = (s) => {
+    if (s.status === 'cancelled' || s.status === 'completed') return false;
+    if (s.status === 'active') return true;
+    // scheduled but start has passed and end hasn't — cron may not have flipped yet
+    const now = new Date();
+    return s.status === 'scheduled'
+      && new Date(s.scheduled_start) <= now
+      && new Date(s.scheduled_end) > now;
+  };
+
   const filtered = filter === 'all' ? sessions : sessions.filter(s => s.status === filter);
   const statusColor = { scheduled: 'var(--primary)', active: 'var(--green-500)', completed: 'var(--gray-500)', cancelled: 'var(--red-500)', replaced: 'var(--yellow-500)' };
   const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
@@ -123,7 +133,7 @@ const SessionsView = () => {
                   </span>
                 </td>
                 <td style={td}>
-                  {s.status === 'active' && (
+                  {isSuperviseble(s) && (
                     <button
                       onClick={() => supervise(s.id, s.room_name)}
                       disabled={joining === s.id}

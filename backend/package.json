@@ -12,11 +12,11 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "bcryptjs": "^2.4.3",
-    "bull": "^4.16.5",
+    "bull": "^1.1.3",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "exceljs": "^4.4.0",
+    "exceljs": "^3.4.0",
     "express": "^4.18.2",
     "express-rate-limit": "^6.9.0",
     "express-validator": "^7.0.1",
@@ -32,7 +32,7 @@
     "pg": "^8.11.3",
     "pg-hstore": "^2.3.4",
     "redis": "^4.6.7",
-    "sequelize": "^6.37.8",
+    "sequelize": "^3.30.0",
     "socket.io": "^4.6.2",
     "uuid": "^14.0.0",
     "validator": "^13.15.35"
