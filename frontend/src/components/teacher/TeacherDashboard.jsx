@@ -6,6 +6,18 @@ import SubmissionsReview from './SubmissionsReview';
 import LiveClassManager from './LiveClassManager';
 import LeaveRequest from './LeaveRequest';
 
+// East African Time (UTC+3) formatter
+const toEAT = (dateStr) => new Date(dateStr).toLocaleString('en-US', {
+  timeZone: 'Africa/Nairobi',
+  year: 'numeric', month: 'short', day: 'numeric',
+  hour: '2-digit', minute: '2-digit', hour12: true
+});
+
+const toEATDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-US', {
+  timeZone: 'Africa/Nairobi',
+  year: 'numeric', month: 'short', day: 'numeric'
+});
+
 const links = [
   { id: 'overview',    label: '🏠 Overview',    icon: '🏠' },
   { id: 'live',        label: '🎙️ Live Class',   icon: '🎙️' },
@@ -92,19 +104,10 @@ const TeacherDashboard = ({ activeTab, setActiveTab }) => {
         <div style={s.content}>
           {activeTab === 'overview' && (
             <>
-              <div style={s.card}>
-                <p style={s.cardTitle}>📅 Upcoming Sessions</p>
-                {sessions.filter(x => x.status === 'scheduled').length === 0
-                  ? <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>No upcoming sessions.</p>
-                  : sessions.filter(x => x.status === 'scheduled').slice(0, 5).map(x => (
-                    <div key={x.id} style={s.row}>
-                      <p style={s.rowTitle}>{x.title}</p>
-                      <p style={s.rowSub}>{new Date(x.scheduled_start).toLocaleString()}</p>
-                    </div>
-                  ))
-                }
-                <button onClick={() => navigate('sessions')} style={s.navBtn2}>View All</button>
-              </div>
+              {/* Live Class — top priority */}
+              <LiveClassManager overviewMode />
+
+              {/* Active Homework */}
               <div style={s.card}>
                 <p style={s.cardTitle}>📝 Active Homework</p>
                 {homework.filter(h => h.status === 'active').length === 0
@@ -112,11 +115,17 @@ const TeacherDashboard = ({ activeTab, setActiveTab }) => {
                   : homework.filter(h => h.status === 'active').slice(0, 5).map(h => (
                     <div key={h.id} style={s.row}>
                       <p style={s.rowTitle}>{h.title}</p>
-                      <p style={s.rowSub}>Due: {new Date(h.due_date).toLocaleDateString()}</p>
+                      <p style={s.rowSub}>Due: {toEATDate(h.due_date)} (EAT)</p>
                     </div>
                   ))
                 }
                 <button onClick={() => navigate('homework')} style={s.navBtn2}>Manage</button>
+              </div>
+
+              {/* Leave Requests */}
+              <div style={{ ...s.card, marginBottom: 0 }}>
+                <p style={s.cardTitle}>🏖️ My Leave Requests</p>
+                <LeaveRequest sessions={sessions} inlineMode />
               </div>
             </>
           )}
@@ -132,7 +141,7 @@ const TeacherDashboard = ({ activeTab, setActiveTab }) => {
                       <p style={s.rowTitle}>{x.title}</p>
                       <span style={s.badge(statusColor[x.status] || '#64748b')}>{x.status}</span>
                     </div>
-                    <p style={s.rowSub}>{new Date(x.scheduled_start).toLocaleString()}</p>
+                    <p style={s.rowSub}>{toEAT(x.scheduled_start)} EAT</p>
                   </div>
                 ))
               }

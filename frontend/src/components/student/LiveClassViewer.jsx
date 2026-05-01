@@ -6,6 +6,8 @@ import { useAuth } from '../../contexts/AuthContext';
 const CLASSROOM_URL = import.meta.env.VITE_CLASSROOM_URL || 'http://localhost:3000';
 const JOIN_WINDOW_MS = 15 * 60 * 1000;
 
+const toEAT = (d) => new Date(d).toLocaleString('en-US', { timeZone: 'Africa/Nairobi', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+
 const LiveClassViewer = ({ overviewMode = false }) => {
   const { user }   = useAuth();
   const [sessions, setSessions] = useState([]);
