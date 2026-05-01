@@ -662,15 +662,20 @@ socket.on("student-left", ({ studentId, studentName, totalStudents }) => {
 });
 
 socket.on("hand-raised", ({ studentId, studentName }) => {
-  const student = students.get(studentId);
-  if (student) {
-    student.handRaised = true;
-    pendingQueue.push({ studentId, studentName });
-    updateStudentList();
-    updatePendingPopup();
-    updateHandButtonState();
-    showToast(`🙋 ${studentName} raised hand`, "#ffcc00", "rgba(255,204,0,0.12)", "rgba(255,204,0,0.35)");
+  // Ensure student is tracked even if they joined before teacher started
+  if (!students.has(studentId)) {
+    students.set(studentId, { name: studentName, handRaised: true, approved: false });
+  } else {
+    students.get(studentId).handRaised = true;
   }
+  // Only add to queue if not already in it
+  if (!pendingQueue.find(s => s.studentId === studentId)) {
+    pendingQueue.push({ studentId, studentName });
+  }
+  updateStudentList();
+  updatePendingPopup();
+  updateHandButtonState();
+  showToast(`🙋 ${studentName} raised hand`, "#ffcc00", "rgba(255,204,0,0.12)", "rgba(255,204,0,0.35)");
 });
 
 socket.on("hand-cancelled", ({ studentId }) => {
@@ -745,6 +750,22 @@ socket.on("current-students", (studentsList) => {
 });
 
 // ── UI Event Listeners ───────────────────────────────────────────────────
+// ── Leave button ─────────────────────────────────────────────────────────
+document.getElementById('btn-leave').addEventListener('click', () => {
+  if (confirm('Leave this session?')) {
+    stopBroadcasting();
+    sessionStorage.removeItem('classroom_room');
+    window.location.href = '/dashboard';
+  }
+});
+
+// ── Refresh persistence: restore room from sessionStorage ─────────────────
+// Store room so a refresh reconnects to the same room automatically
+sessionStorage.setItem('classroom_room', roomId);
+window.addEventListener('beforeunload', () => {
+  // Keep sessionStorage on refresh (not on leave button)
+});
+
 btnPen.addEventListener('click', () => {
   penActive = !penActive;
   btnPen.classList.toggle('active', penActive);
@@ -758,15 +779,17 @@ btnHand.addEventListener('click', () => {
   } else if (pendingQueue.length > 0) {
     approveNextStudent();
   } else {
-    pendingPopup.classList.add('open');
+    // Refresh student list then grant mic to first connected student
+    socket.emit("teacher-broadcasting");
     setTimeout(() => {
-      document.addEventListener('click', function closePopupOnClickOutside(e) {
-        if (!pendingPopup.contains(e.target) && !btnHand.contains(e.target)) {
-          pendingPopup.classList.remove('open');
-          document.removeEventListener('click', closePopupOnClickOutside);
-        }
-      });
-    }, 10);
+      if (students.size > 0) {
+        const [sid, sinfo] = Array.from(students.entries())[0];
+        socket.emit("approve-speaker", { roomId, studentId: sid });
+        showToast("Granted mic to " + sinfo.name, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+      } else {
+        showToast("No students connected", "#ffcc00");
+      }
+    }, 600);
   }
 });
 
@@ -796,13 +819,444 @@ document.addEventListener('click', (e) => {
   }
 });
 
-blobFile.addEventListener('click', () => fileInput.click());
+blobFile.addEventListener('click', () => {
+  const menu = document.getElementById('source-menu');
+  menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('src-image').addEventListener('click', () => {
+  document.getElementById('source-menu').style.display = 'none';
+  fileInput.click();
+});
+
+document.getElementById('src-quran').addEventListener('click', () => {
+  document.getElementById('source-menu').style.display = 'none';
+  openQuranPanel();
+});
+
+document.getElementById('src-qaida').addEventListener('click', () => {
+  document.getElementById('source-menu').style.display = 'none';
+  openQaidaPanel();
+});
+
+// ── Qaida Integration ─────────────────────────────────────────────────────
+const QAIDA_API = 'https://qaidaapi.onrender.com';
+let qaidaLessons = [];
+let currentQaidaPage = 1;
+
+function openQaidaPanel() {
+  const panel = document.getElementById('qaida-panel');
+  panel.style.display = 'flex';
+  if (qaidaLessons.length === 0) loadQaidaLessons();
+}
+
+async function loadQaidaLessons() {
+  const sel = document.getElementById('qaida-page');
+  sel.innerHTML = '<option value="">Loading...</option>';
+  try {
+    const res  = await fetch(`${QAIDA_API}/lessons`);
+    const data = await res.json();
+    qaidaLessons = data;
+    sel.innerHTML = '';
+    // Add all 23 pages directly by number
+    for (let i = 1; i <= 23; i++) {
+      const lesson = data.find(l => l.page === i || l.id === i || l.pageNumber === i) || { title: `Page ${i}` };
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `Page ${i}${lesson.title && lesson.title !== `Page ${i}` ? ' — ' + lesson.title : ''}`;
+      sel.appendChild(opt);
+    }
+    // Preview first page
+    previewQaidaPage(1);
+  } catch (e) {
+    // Fallback: just list pages 1-23 without lesson titles
+    sel.innerHTML = '';
+    for (let i = 1; i <= 23; i++) {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `Page ${i}`;
+      sel.appendChild(opt);
+    }
+    previewQaidaPage(1);
+  }
+}
+
+function previewQaidaPage(pageNum) {
+  const img = document.getElementById('qaida-img');
+  img.style.display = 'none';
+  img.src = `${QAIDA_API}/pages/page${pageNum}.jpg`;
+  img.onload  = () => { img.style.display = 'block'; };
+  img.onerror = () => { img.style.display = 'none'; };
+  currentQaidaPage = pageNum;
+}
+
+document.getElementById('qaida-page').addEventListener('change', (e) => {
+  if (e.target.value) previewQaidaPage(parseInt(e.target.value));
+});
+
+document.getElementById('qaida-close').addEventListener('click', () => {
+  document.getElementById('qaida-panel').style.display = 'none';
+});
+
+document.getElementById('qaida-share').addEventListener('click', () => {
+  const pageNum = parseInt(document.getElementById('qaida-page').value) || currentQaidaPage;
+  const url = `${QAIDA_API}/pages/page${pageNum}.jpg`;
+
+  // Load image, convert to data URL so it can be shared via socket
+  const tempImg = new Image();
+  tempImg.crossOrigin = 'anonymous';
+  tempImg.onload = () => {
+    const offscreen = document.createElement('canvas');
+    offscreen.width  = tempImg.naturalWidth;
+    offscreen.height = tempImg.naturalHeight;
+    offscreen.getContext('2d').drawImage(tempImg, 0, 0);
+    const dataUrl = offscreen.toDataURL('image/jpeg', 0.92);
+
+    bgImage.src = dataUrl;
+    imageContainer.style.display = 'flex';
+    placeholder.style.display = 'none';
+    btnClear.style.display = 'block';
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setTimeout(() => resizeCanvas(), 50);
+    socket.emit('share-material', { roomId, url: dataUrl });
+    document.getElementById('qaida-panel').style.display = 'none';
+    showToast(`🅰️ Page ${pageNum} shared`, '#16c24a', 'rgba(22,194,74,0.12)', 'rgba(22,194,74,0.35)');
+
+    // Show quick-change bar for Qaida
+    showQaidaBar(pageNum);
+  };
+  tempImg.onerror = () => showToast('Failed to load page', '#ff6b6b');
+  tempImg.src = url;
+});
+
+function showQaidaBar(pageNum) {
+  let bar = document.getElementById('qaida-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'qaida-bar';
+    bar.style.cssText = `
+      position:absolute; bottom:105px; left:50%; transform:translateX(-50%);
+      z-index:15; background:rgba(10,10,15,0.92); border:1px solid rgba(255,255,255,0.12);
+      border-radius:20px; padding:6px 12px; display:flex; align-items:center;
+      gap:8px; backdrop-filter:blur(12px); white-space:nowrap;
+    `;
+    document.getElementById('phone').appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="color:rgba(255,255,255,0.5);font-size:11px;">🅰️</span>
+    <button id="qb-prev" style="background:rgba(255,255,255,0.1);border:none;border-radius:8px;color:#fff;padding:4px 10px;font-size:14px;cursor:pointer;">&#8592;</button>
+    <span id="qb-label" style="color:#fff;font-size:12px;font-weight:700;min-width:50px;text-align:center;">Page ${pageNum}</span>
+    <button id="qb-next" style="background:rgba(255,255,255,0.1);border:none;border-radius:8px;color:#fff;padding:4px 10px;font-size:14px;cursor:pointer;">&#8594;</button>
+    <button id="qb-close" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:14px;cursor:pointer;padding:0 2px;">✕</button>
+  `;
+  bar.style.display = 'flex';
+  bar._page = pageNum;
+
+  const shareQaidaPage = (p) => {
+    p = Math.max(1, Math.min(23, p));
+    bar._page = p;
+    document.getElementById('qb-label').textContent = `Page ${p}`;
+    const url = `${QAIDA_API}/pages/page${p}.jpg`;
+    const tmp = new Image();
+    tmp.crossOrigin = 'anonymous';
+    tmp.onload = () => {
+      const oc = document.createElement('canvas');
+      oc.width = tmp.naturalWidth; oc.height = tmp.naturalHeight;
+      oc.getContext('2d').drawImage(tmp, 0, 0);
+      const du = oc.toDataURL('image/jpeg', 0.92);
+      bgImage.src = du;
+      imageContainer.style.display = 'flex';
+      placeholder.style.display = 'none';
+      btnClear.style.display = 'block';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      setTimeout(() => resizeCanvas(), 50);
+      socket.emit('share-material', { roomId, url: du });
+    };
+    tmp.src = url;
+  };
+
+  document.getElementById('qb-prev').onclick  = () => shareQaidaPage(bar._page - 1);
+  document.getElementById('qb-next').onclick  = () => shareQaidaPage(bar._page + 1);
+  document.getElementById('qb-close').onclick = () => { bar.style.display = 'none'; };
+}
+
 fileInput.addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) shareMaterial(file);
   fileInput.value = '';
 });
 
+// ── Quran Integration ─────────────────────────────────────────────────────
+const SURAHS = [
+  {n:1,name:"Al-Fatihah",v:7},{n:2,name:"Al-Baqarah",v:286},{n:3,name:"Aal-E-Imran",v:200},
+  {n:4,name:"An-Nisa",v:176},{n:5,name:"Al-Ma'idah",v:120},{n:6,name:"Al-An'am",v:165},
+  {n:7,name:"Al-A'raf",v:206},{n:8,name:"Al-Anfal",v:75},{n:9,name:"At-Tawbah",v:129},
+  {n:10,name:"Yunus",v:109},{n:11,name:"Hud",v:123},{n:12,name:"Yusuf",v:111},
+  {n:13,name:"Ar-Ra'd",v:43},{n:14,name:"Ibrahim",v:52},{n:15,name:"Al-Hijr",v:99},
+  {n:16,name:"An-Nahl",v:128},{n:17,name:"Al-Isra",v:111},{n:18,name:"Al-Kahf",v:110},
+  {n:19,name:"Maryam",v:98},{n:20,name:"Ta-Ha",v:135},{n:21,name:"Al-Anbiya",v:112},
+  {n:22,name:"Al-Hajj",v:78},{n:23,name:"Al-Mu'minun",v:118},{n:24,name:"An-Nur",v:64},
+  {n:25,name:"Al-Furqan",v:77},{n:26,name:"Ash-Shu'ara",v:227},{n:27,name:"An-Naml",v:93},
+  {n:28,name:"Al-Qasas",v:88},{n:29,name:"Al-Ankabut",v:69},{n:30,name:"Ar-Rum",v:60},
+  {n:31,name:"Luqman",v:34},{n:32,name:"As-Sajdah",v:30},{n:33,name:"Al-Ahzab",v:73},
+  {n:34,name:"Saba",v:54},{n:35,name:"Fatir",v:45},{n:36,name:"Ya-Sin",v:83},
+  {n:37,name:"As-Saffat",v:182},{n:38,name:"Sad",v:88},{n:39,name:"Az-Zumar",v:75},
+  {n:40,name:"Ghafir",v:85},{n:41,name:"Fussilat",v:54},{n:42,name:"Ash-Shura",v:53},
+  {n:43,name:"Az-Zukhruf",v:89},{n:44,name:"Ad-Dukhan",v:59},{n:45,name:"Al-Jathiyah",v:37},
+  {n:46,name:"Al-Ahqaf",v:35},{n:47,name:"Muhammad",v:38},{n:48,name:"Al-Fath",v:29},
+  {n:49,name:"Al-Hujurat",v:18},{n:50,name:"Qaf",v:45},{n:51,name:"Adh-Dhariyat",v:60},
+  {n:52,name:"At-Tur",v:49},{n:53,name:"An-Najm",v:62},{n:54,name:"Al-Qamar",v:55},
+  {n:55,name:"Ar-Rahman",v:78},{n:56,name:"Al-Waqi'ah",v:96},{n:57,name:"Al-Hadid",v:29},
+  {n:58,name:"Al-Mujadila",v:22},{n:59,name:"Al-Hashr",v:24},{n:60,name:"Al-Mumtahanah",v:13},
+  {n:61,name:"As-Saf",v:14},{n:62,name:"Al-Jumu'ah",v:11},{n:63,name:"Al-Munafiqun",v:11},
+  {n:64,name:"At-Taghabun",v:18},{n:65,name:"At-Talaq",v:12},{n:66,name:"At-Tahrim",v:12},
+  {n:67,name:"Al-Mulk",v:30},{n:68,name:"Al-Qalam",v:52},{n:69,name:"Al-Haqqah",v:52},
+  {n:70,name:"Al-Ma'arij",v:44},{n:71,name:"Nuh",v:28},{n:72,name:"Al-Jinn",v:28},
+  {n:73,name:"Al-Muzzammil",v:20},{n:74,name:"Al-Muddaththir",v:56},{n:75,name:"Al-Qiyamah",v:40},
+  {n:76,name:"Al-Insan",v:31},{n:77,name:"Al-Mursalat",v:50},{n:78,name:"An-Naba",v:40},
+  {n:79,name:"An-Nazi'at",v:46},{n:80,name:"Abasa",v:42},{n:81,name:"At-Takwir",v:29},
+  {n:82,name:"Al-Infitar",v:19},{n:83,name:"Al-Mutaffifin",v:36},{n:84,name:"Al-Inshiqaq",v:25},
+  {n:85,name:"Al-Buruj",v:22},{n:86,name:"At-Tariq",v:17},{n:87,name:"Al-A'la",v:19},
+  {n:88,name:"Al-Ghashiyah",v:26},{n:89,name:"Al-Fajr",v:30},{n:90,name:"Al-Balad",v:20},
+  {n:91,name:"Ash-Shams",v:15},{n:92,name:"Al-Layl",v:21},{n:93,name:"Ad-Duha",v:11},
+  {n:94,name:"Ash-Sharh",v:8},{n:95,name:"At-Tin",v:8},{n:96,name:"Al-Alaq",v:19},
+  {n:97,name:"Al-Qadr",v:5},{n:98,name:"Al-Bayyinah",v:8},{n:99,name:"Az-Zalzalah",v:8},
+  {n:100,name:"Al-Adiyat",v:11},{n:101,name:"Al-Qari'ah",v:11},{n:102,name:"At-Takathur",v:8},
+  {n:103,name:"Al-Asr",v:3},{n:104,name:"Al-Humazah",v:9},{n:105,name:"Al-Fil",v:5},
+  {n:106,name:"Quraysh",v:4},{n:107,name:"Al-Ma'un",v:7},{n:108,name:"Al-Kawthar",v:3},
+  {n:109,name:"Al-Kafirun",v:6},{n:110,name:"An-Nasr",v:3},{n:111,name:"Al-Masad",v:5},
+  {n:112,name:"Al-Ikhlas",v:4},{n:113,name:"Al-Falaq",v:5},{n:114,name:"An-Nas",v:6}
+];
+
+let currentQuranSurah = null; // tracks active surah for quick-change bar
+
+// Populate surah dropdown once
+function initSurahDropdown() {
+  const sel = document.getElementById('quran-surah');
+  if (sel.options.length > 0) return;
+  SURAHS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.n;
+    opt.textContent = `${s.n}. ${s.name}`;
+    sel.appendChild(opt);
+  });
+}
+
+function openQuranPanel() {
+  initSurahDropdown();
+  document.getElementById('quran-panel').style.display = 'flex';
+}
+
+document.getElementById('quran-close').addEventListener('click', () => {
+  document.getElementById('quran-panel').style.display = 'none';
+});
+
+document.getElementById('quran-surah').addEventListener('change', (e) => {
+  const s = SURAHS.find(x => x.n == e.target.value);
+  if (!s) return;
+  document.getElementById('quran-from').max = s.v;
+  document.getElementById('quran-to').max   = s.v;
+  document.getElementById('quran-to').value = Math.min(5, s.v);
+});
+
+document.getElementById('quran-load').addEventListener('click', async () => {
+  const surahNum = parseInt(document.getElementById('quran-surah').value);
+  const from     = parseInt(document.getElementById('quran-from').value);
+  const to       = parseInt(document.getElementById('quran-to').value);
+  if (!surahNum || isNaN(from) || isNaN(to) || from > to) {
+    showToast('Invalid range', '#ff6b6b'); return;
+  }
+  await loadAndShareQuran(surahNum, from, to);
+});
+
+document.getElementById('quran-share').addEventListener('click', async () => {
+  const surahNum = parseInt(document.getElementById('quran-surah').value);
+  const from     = parseInt(document.getElementById('quran-from').value);
+  const to       = parseInt(document.getElementById('quran-to').value);
+  await loadAndShareQuran(surahNum, from, to, true);
+});
+
+async function loadAndShareQuran(surahNum, from, to, shareNow = false) {
+  const loadBtn = document.getElementById('quran-load');
+  loadBtn.textContent = 'Loading...';
+  loadBtn.disabled = true;
+
+  try {
+    const res  = await fetch(`https://api.alquran.cloud/v1/surah/${surahNum}/quran-uthmani`);
+    const data = await res.json();
+    if (data.code !== 200 || !data.data?.ayahs) { showToast('API error', '#ff6b6b'); return; }
+
+    const verses = data.data.ayahs.slice(from - 1, to);
+    const surah  = SURAHS.find(s => s.n === surahNum);
+
+    const preview = document.getElementById('quran-preview');
+    preview.innerHTML = '';
+    verses.forEach(v => {
+      const div = document.createElement('div');
+      div.style.cssText = 'background:rgba(255,255,255,0.06);border-radius:12px;padding:14px 12px;border:1px solid rgba(255,255,255,0.08);';
+      div.innerHTML = `
+        <p style="color:#fff;font-size:26px;line-height:2.2;text-align:right;direction:rtl;font-family:serif;">${v.text}</p>
+        <p style="color:rgba(255,255,255,0.35);font-size:11px;margin-top:6px;text-align:right;">آية ${v.numberInSurah}</p>
+      `;
+      preview.appendChild(div);
+    });
+
+    document.getElementById('quran-share').style.display = 'block';
+    showToast('Verses loaded ✔', '#16c24a');
+
+    if (shareNow) {
+      renderAndShareQuran(verses, surah, from, to);
+      document.getElementById('quran-panel').style.display = 'none';
+    }
+  } catch (e) {
+    showToast('Failed to load Quran', '#ff6b6b');
+    console.error('[quran]', e);
+  } finally {
+    loadBtn.textContent = 'Load Verses';
+    loadBtn.disabled = false;
+  }
+}
+
+function renderAndShareQuran(verses, surah, from, to) {
+  const W = 800, PAD = 40, LINE = 60;
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = W;
+  offscreen.height = verses.length * LINE * 2 + PAD * 2 + 60;
+  const octx = offscreen.getContext('2d');
+
+  // Cream background
+  octx.fillStyle = '#fdf6e3';
+  octx.fillRect(0, 0, offscreen.width, offscreen.height);
+
+  // Header
+  octx.fillStyle = '#2d5016';
+  octx.font = 'bold 18px serif';
+  octx.textAlign = 'center';
+  octx.fillText(`سورة ${surah?.name || ''} — آيات ${from}–${to}`, W / 2, PAD);
+
+  // Divider
+  octx.strokeStyle = '#c8a96e';
+  octx.lineWidth = 1;
+  octx.beginPath();
+  octx.moveTo(PAD, PAD + 14);
+  octx.lineTo(W - PAD, PAD + 14);
+  octx.stroke();
+
+  let y = PAD + 40;
+  octx.textAlign = 'right';
+  octx.fillStyle = '#1a1a1a';
+
+  verses.forEach(v => {
+    // Wrap long text
+    const words = v.text.split(' ');
+    let line = '';
+    const maxW = W - PAD * 2;
+    octx.font = '32px serif';
+    const lines = [];
+    for (const word of words) {
+      const test = line ? word + ' ' + line : word;
+      if (octx.measureText(test).width > maxW && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+
+    lines.forEach(l => {
+      octx.font = '32px serif';
+      octx.fillStyle = '#1a1a1a';
+      octx.fillText(l, W - PAD, y);
+      y += LINE;
+    });
+
+    octx.font = '12px serif';
+    octx.fillStyle = '#c8a96e';
+    octx.textAlign = 'left';
+    octx.fillText(`● ${v.numberInSurah}`, PAD, y - LINE + 20);
+    octx.textAlign = 'right';
+
+    y += 10;
+  });
+
+  const dataUrl = offscreen.toDataURL('image/png');
+  bgImage.src = dataUrl;
+  imageContainer.style.display = 'flex';
+  placeholder.style.display = 'none';
+  btnClear.style.display = 'block';
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  setTimeout(() => resizeCanvas(), 50);
+  socket.emit('share-material', { roomId, url: dataUrl });
+
+  // Show quick-change bar
+  currentQuranSurah = surah?.n || 1;
+  showQuranBar(surah, from, to);
+  showToast('📖 Quran shared', '#16c24a', 'rgba(22,194,74,0.12)', 'rgba(22,194,74,0.35)');
+}
+
+// ── Quick-change Quran bar (shown while Quran is active on canvas) ───────────────
+function showQuranBar(surah, from, to) {
+  let bar = document.getElementById('quran-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'quran-bar';
+    bar.style.cssText = `
+      position:absolute; bottom:105px; left:50%; transform:translateX(-50%);
+      z-index:15; background:rgba(10,10,15,0.92); border:1px solid rgba(255,255,255,0.12);
+      border-radius:20px; padding:6px 10px; display:flex; align-items:center;
+      gap:8px; backdrop-filter:blur(12px); white-space:nowrap;
+    `;
+    document.getElementById('phone').appendChild(bar);
+  }
+
+  bar.innerHTML = `
+    <span style="color:rgba(255,255,255,0.5);font-size:11px;">📖</span>
+    <select id="qbar-surah" style="background:#1a1a2e;border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;padding:4px 8px;font-size:12px;max-width:130px;">
+      ${SURAHS.map(s => `<option value="${s.n}" ${s.n === surah?.n ? 'selected' : ''}>${s.n}. ${s.name}</option>`).join('')}
+    </select>
+    <input id="qbar-from" type="number" min="1" value="${from}" style="width:40px;background:#1a1a2e;border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;padding:4px 6px;font-size:12px;text-align:center;">
+    <span style="color:rgba(255,255,255,0.3);font-size:11px;">-</span>
+    <input id="qbar-to" type="number" min="1" value="${to}" style="width:40px;background:#1a1a2e;border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;padding:4px 6px;font-size:12px;text-align:center;">
+    <button id="qbar-go" style="background:#4f46e5;border:none;border-radius:8px;color:#fff;padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;">Go</button>
+    <button id="qbar-close" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:14px;cursor:pointer;padding:0 2px;">✕</button>
+  `;
+  bar.style.display = 'flex';
+
+  // Update max when surah changes
+  document.getElementById('qbar-surah').addEventListener('change', (e) => {
+    const s = SURAHS.find(x => x.n == e.target.value);
+    if (s) {
+      document.getElementById('qbar-from').max = s.v;
+      document.getElementById('qbar-to').max   = s.v;
+      document.getElementById('qbar-to').value = Math.min(5, s.v);
+    }
+  });
+
+  document.getElementById('qbar-go').addEventListener('click', async () => {
+    const sn  = parseInt(document.getElementById('qbar-surah').value);
+    const fr  = parseInt(document.getElementById('qbar-from').value);
+    const t   = parseInt(document.getElementById('qbar-to').value);
+    const s   = SURAHS.find(x => x.n === sn);
+    if (!sn || isNaN(fr) || isNaN(t) || fr > t) { showToast('Invalid range', '#ff6b6b'); return; }
+    const res  = await fetch(`https://api.alquran.cloud/v1/surah/${sn}/quran-uthmani`);
+    const data = await res.json();
+    if (data.code !== 200 || !data.data?.ayahs) { showToast('API error', '#ff6b6b'); return; }
+    renderAndShareQuran(data.data.ayahs.slice(fr - 1, t), s, fr, t);
+  });
+
+  document.getElementById('qbar-close').addEventListener('click', () => {
+    bar.style.display = 'none';
+    currentQuranSurah = null;
+  });
+}
+
+document.addEventListener('click', (e) => {
+  const menu = document.getElementById('source-menu');
+  if (menu && !menu.contains(e.target) && !blobFile.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
 hexInput.addEventListener('input', () => {
   let v = hexInput.value.trim();
   if (!v.startsWith('#')) v = '#' + v;

@@ -16,7 +16,7 @@ const canvas         = document.getElementById('draw-canvas');
 const ctx            = canvas.getContext('2d');
 const placeholder    = document.getElementById('placeholder');
 const btnHand        = document.getElementById('btn-hand');
-const btnCall        = document.getElementById('btn-call');
+const btnCall        = { classList: { add: ()=>{}, remove: ()=>{} }, innerHTML: '' }; // removed from UI
 const pillAudio      = document.getElementById('pill-audio');
 const pillSpeaking   = document.getElementById('pill-speaking');
 const toast          = document.getElementById('toast');
@@ -430,6 +430,21 @@ function updateTeacherStatus(online) {
   }
 }
 
+// ── Leave button ──────────────────────────────────────────────────────────
+document.getElementById('btn-leave').addEventListener('click', () => {
+  if (confirm('Leave this session?')) {
+    closeInboundPeer();
+    closeOutboundPeer();
+    sessionStorage.removeItem('classroom_room');
+    sessionStorage.removeItem('classroom_name');
+    window.location.href = '/dashboard';
+  }
+});
+
+// ── Refresh persistence ───────────────────────────────────────────────────
+sessionStorage.setItem('classroom_room', roomId);
+sessionStorage.setItem('classroom_name', studentName);
+
 function updateCallState(active) {
   isInCall = active;
   if (active && audioEnabled) {
@@ -544,43 +559,17 @@ btnHand.addEventListener('click', () => {
   }
 });
 
-// ── Call/Audio Button ─────────────────────────────────────────────────────
-btnCall.addEventListener('click', async () => {
-  if (!audioUnlocked) {
-    unlockAudio();
-    return;
-  }
-  
-  if (isInCall && audioEnabled) {
-    if (teacherAudio) {
-      teacherAudio.muted = true;
-    }
-    audioEnabled = false;
-    updateAudioEnabledState(false);
-    showToast("Audio muted", "rgba(255,255,255,0.2)", "#fff");
-  } else if (isInCall && !audioEnabled) {
-    if (teacherAudio) {
-      teacherAudio.muted = false;
-      teacherAudio.play().catch(e => console.warn);
-    }
-    audioEnabled = true;
-    updateAudioEnabledState(true);
-    showToast("Audio enabled", "rgba(52,199,89,0.2)", "#34c759");
-  } else if (!isInCall) {
-    showToast("Waiting for teacher to start broadcast...", "rgba(255,204,0,0.2)", "#ffcc00");
-  }
-});
+// ── Call/Audio Button (removed from UI, stub only) ───────────────────────
+// btnCall is a stub object, no event listener needed
 
 // ── Socket Events for Hand/Speaker ────────────────────────────────────────
 socket.on("speak-approved", ({ teacherSocketId }) => {
-  console.log("[student] speak approved, teacher:", teacherSocketId);
-  canSpeak = true;
-  handRaised = false;
-  teacherId = teacherSocketId;
-  updateHandButtonState();
+  canSpeak=true; handRaised=false; teacherId=teacherSocketId;
+  btnHand.classList.remove("raised"); btnHand.classList.add("speaking");
+  btnHand.innerHTML="🎙️"; pillSpeaking.classList.add("show");
   createOutboundPeer(teacherSocketId);
-  showToast("You are now speaking! 🎤", "rgba(22,194,74,0.2)", "#16c24a");
-});
+  showToast("🎙️ Your mic is now open!","rgba(22,194,74,0.2)","#16c24a");
+});;
 
 socket.on("speak-revoked", () => {
   console.log("[student] speak revoked");

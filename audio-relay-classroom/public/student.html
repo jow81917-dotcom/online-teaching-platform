@@ -210,27 +210,8 @@
       animation: pulse-ring 1.4s ease-out infinite;
     }
 
-    /* Call/Audio Button */
-    #btn-call {
-      background: #c0392b;
-      box-shadow: 0 4px 20px rgba(192,57,43,0.35);
-      opacity: 0.65;
-      transition: background-color 0.3s, box-shadow 0.3s, opacity 0.3s;
-    }
-
-    #btn-call.in-call {
-      background: #e5202e;
-      box-shadow: 0 0 0 3px rgba(229,32,46,0.4), 0 4px 28px rgba(229,32,46,0.85);
-      opacity: 1;
-      animation: call-shake 2.8s ease-in-out infinite;
-    }
-
-    #btn-call.audio-on {
-      background: #16c24a;
-      box-shadow: 0 0 0 3px rgba(22,194,74,0.4), 0 4px 24px rgba(22,194,74,0.8);
-      opacity: 1;
-      animation: none;
-    }
+    /* Call/Audio Button - hidden, kept for JS compatibility */
+    #btn-call { display: none; }
 
     /* Toast Notification */
     #toast {
@@ -368,6 +349,28 @@
       50% { opacity: 0.5; }
     }
 
+    /* Leave button */
+    #btn-leave {
+      position: absolute;
+      top: 6px;
+      left: 8px;
+      z-index: 50;
+      background: rgba(239,68,68,0.15);
+      border: 1px solid rgba(239,68,68,0.35);
+      color: #ef4444;
+      border-radius: 20px;
+      padding: 4px 12px 4px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-family: 'Outfit', sans-serif;
+      transition: background 0.2s;
+    }
+    #btn-leave:hover { background: rgba(239,68,68,0.3); }
+
     /* Room info */
     .room-info {
       position: absolute;
@@ -389,6 +392,7 @@
 <body>
 
 <div id="phone">
+  <button id="btn-leave" title="Leave Session">← Leave</button>
   
   <!-- Room Display -->
   <div class="room-info" id="roomDisplay">Room: loading...</div>
@@ -424,10 +428,9 @@
     <div class="status-pill" id="pill-speaking">🎤 You are Speaking</div>
   </div>
 
-  <!-- Bottom Control Bar (2 buttons) -->
+  <!-- Bottom Control Bar -->
   <div id="bottom-bar">
     <button class="ctrl-btn" id="btn-hand" title="Raise Hand">✋</button>
-    <button class="ctrl-btn" id="btn-call" title="Enable/Disable Audio">🔇</button>
   </div>
 
   <!-- Toast Notification -->

@@ -141,6 +141,12 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     room.students.forEach((info, studentSocketId) => {
       io.to(studentSocketId).emit("teacher-arrived");
+      // Re-notify teacher of each connected student so their Map is populated
+      socket.emit("student-connected", {
+        studentId: studentSocketId,
+        studentName: info.name,
+        totalStudents: room.students.size
+      });
     });
 
     console.log(`[teacher] ${socket.id} → room ${roomId}`);
