@@ -6,7 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 const CLASSROOM_URL = import.meta.env.VITE_CLASSROOM_URL || 'http://localhost:3000';
 const JOIN_WINDOW_MS = 15 * 60 * 1000;
 
-const LiveClassViewer = () => {
+const LiveClassViewer = ({ overviewMode = false }) => {
   const { user }   = useAuth();
   const [sessions, setSessions] = useState([]);
   const [joining,  setJoining]  = useState(null);
@@ -72,6 +72,44 @@ const LiveClassViewer = () => {
   };
 
   const active = sessions.filter(s => s.status === 'active' || s.status === 'scheduled');
+
+  // Overview mode: compact card showing only the current/next joinable session
+  if (overviewMode) {
+    const joinable = active.find(s => isJoinable(s));
+    const next     = active.find(s => !isJoinable(s));
+    const shown    = joinable || next;
+    const card = {
+      background: joinable ? 'linear-gradient(135deg,#16c24a22,#16c24a11)' : '#1a1a2e',
+      border: joinable ? '1px solid #16c24a55' : '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '16px', padding: '16px', marginBottom: '12px'
+    };
+    return (
+      <div style={card}>
+        <p style={{ color: '#fff', fontWeight: 700, fontSize: '0.95rem', marginBottom: '10px' }}>
+          {joinable ? '🟢 Live Class' : '🎙️ Live Class'}
+        </p>
+        {!shown ? (
+          <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>No upcoming sessions.</p>
+        ) : (
+          <>
+            <p style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.9rem' }}>{shown.title}</p>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.78rem', marginTop: '4px' }}>
+              {new Date(shown.scheduled_start).toLocaleString()}
+              {joinable && <span style={{ color: '#16c24a', marginLeft: '8px', fontWeight: 700 }}>● Open now</span>}
+              {!joinable && countdown(shown) && <span style={{ color: 'rgba(255,255,255,0.4)', marginLeft: '8px' }}>opens in {countdown(shown)}</span>}
+            </p>
+            <button
+              onClick={() => joinClass(shown.id)}
+              disabled={!joinable || joining === shown.id}
+              style={{ marginTop: '12px', width: '100%', padding: '11px', borderRadius: '10px', border: 'none', background: joinable ? '#16c24a' : 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 700, fontSize: '0.9rem', cursor: joinable ? 'pointer' : 'not-allowed', opacity: joinable ? 1 : 0.5 }}
+            >
+              {joining === shown.id ? '...' : joinable ? '🎙️ Join Class Now' : '🎙️ Join Class'}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
 
   const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
   const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem', verticalAlign: 'middle' };

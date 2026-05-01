@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 
 const EMPTY = { session_id: '', leave_date: '', start_time: '', end_time: '', reason: '' };
 
-const LeaveRequest = ({ sessions = [] }) => {
+const LeaveRequest = ({ sessions = [], inlineMode = false }) => {
   const [requests, setRequests] = useState([]);
   const [form, setForm] = useState(EMPTY);
   const [showForm, setShowForm] = useState(false);
@@ -21,9 +21,48 @@ const LeaveRequest = ({ sessions = [] }) => {
     } catch (err) { toast.error(err.response?.data?.message || 'Error'); }
   };
 
-  const statusColor = { pending: 'var(--yellow-500)', approved: 'var(--green-500)', rejected: 'var(--red-500)' };
-  const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
-  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem' };
+  const statusColor = { pending: '#f59e0b', approved: '#22c55e', rejected: '#ef4444' };
+
+  // Inline mode: compact dark card for overview
+  if (inlineMode) {
+    const row = { padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' };
+    return (
+      <>
+        {requests.length === 0
+          ? <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>No leave requests yet.</p>
+          : requests.slice(0, 3).map(r => (
+            <div key={r.id} style={row}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <p style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '0.85rem' }}>{r.leave_date}</p>
+                <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: '9999px', background: (statusColor[r.status] || '#64748b') + '22', color: statusColor[r.status] || '#64748b', textTransform: 'capitalize' }}>{r.status}</span>
+              </div>
+              <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', marginTop: '2px' }}>{r.reason || '—'}</p>
+            </div>
+          ))
+        }
+        <button
+          onClick={() => setShowForm(true)}
+          style={{ marginTop: '12px', width: '100%', padding: '9px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer' }}
+        >
+          + Request Leave
+        </button>
+        {showForm && (
+          <form onSubmit={handleSubmit} style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <input type="date" required value={form.leave_date} onChange={e => setForm({...form, leave_date: e.target.value})} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', padding: '8px 10px', fontSize: '13px' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input type="time" required value={form.start_time} onChange={e => setForm({...form, start_time: e.target.value})} style={{ flex: 1, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', padding: '8px 10px', fontSize: '13px' }} />
+              <input type="time" required value={form.end_time} onChange={e => setForm({...form, end_time: e.target.value})} style={{ flex: 1, background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', padding: '8px 10px', fontSize: '13px' }} />
+            </div>
+            <textarea placeholder="Reason (optional)" value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} rows={2} style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '8px', color: '#fff', padding: '8px 10px', fontSize: '13px', resize: 'none' }} />
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="submit" style={{ flex: 1, padding: '9px', borderRadius: '8px', border: 'none', background: '#4f46e5', color: '#fff', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}>Submit</button>
+              <button type="button" onClick={() => setShowForm(false)} style={{ flex: 1, padding: '9px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontSize: '0.82rem', cursor: 'pointer' }}>Cancel</button>
+            </div>
+          </form>
+        )}
+      </>
+    );
+  }
 
   return (
     <div>

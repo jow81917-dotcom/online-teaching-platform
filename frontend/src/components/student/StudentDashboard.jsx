@@ -92,21 +92,12 @@ const StudentDashboard = ({ activeTab, setActiveTab }) => {
         <div style={s.content}>
           {activeTab === 'overview' && (
             <>
+              {/* Live Class Card */}
+              <LiveClassViewer overviewMode />
+
+              {/* My Homework */}
               <div style={s.card}>
-                <p style={s.cardTitle}>📅 Upcoming Sessions</p>
-                {sessions.filter(x => x.status === 'scheduled').length === 0
-                  ? <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>No upcoming sessions.</p>
-                  : sessions.filter(x => x.status === 'scheduled').slice(0, 5).map(x => (
-                    <div key={x.id} style={s.row}>
-                      <p style={s.rowTitle}>{x.title}</p>
-                      <p style={s.rowSub}>{new Date(x.scheduled_start).toLocaleString()}</p>
-                    </div>
-                  ))
-                }
-                <button onClick={() => navigate('sessions')} style={s.navBtn2}>View All</button>
-              </div>
-              <div style={s.card}>
-                <p style={s.cardTitle}>📝 Pending Homework</p>
+                <p style={s.cardTitle}>📝 My Homework</p>
                 {homework.filter(h => h.status === 'active').length === 0
                   ? <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.85rem' }}>No pending homework.</p>
                   : homework.filter(h => h.status === 'active').slice(0, 5).map(h => (
@@ -116,7 +107,13 @@ const StudentDashboard = ({ activeTab, setActiveTab }) => {
                     </div>
                   ))
                 }
-                <button onClick={() => navigate('homework')} style={s.navBtn2}>View</button>
+                <button onClick={() => navigate('homework')} style={s.navBtn2}>View All</button>
+              </div>
+
+              {/* Leave Requests */}
+              <div style={{ ...s.card, marginBottom: 0 }}>
+                <p style={s.cardTitle}>🏖️ My Leave Requests</p>
+                <LeaveRequest sessions={sessions} inlineMode />
               </div>
             </>
           )}
