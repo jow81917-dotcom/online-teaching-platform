@@ -155,7 +155,7 @@
       position: absolute;
       bottom: 32px;
       left: 0; right: 0;
-      z-index: 10;
+      z-index: 35;
       display: flex;
       justify-content: center;
       align-items: center;
@@ -210,8 +210,25 @@
       animation: pulse-ring 1.4s ease-out infinite;
     }
 
-    /* Call/Audio Button - hidden, kept for JS compatibility */
-    #btn-call { display: none; }
+    /* Call/Audio Button */
+    #btn-call {
+      background: #c0392b;
+      box-shadow: 0 4px 20px rgba(192,57,43,0.35);
+      opacity: 0.65;
+      transition: background-color 0.3s, box-shadow 0.3s, opacity 0.3s;
+    }
+    #btn-call.in-call {
+      background: #e5202e;
+      box-shadow: 0 0 0 3px rgba(229,32,46,0.4), 0 4px 28px rgba(229,32,46,0.85);
+      opacity: 1;
+      animation: call-shake 2.8s ease-in-out infinite;
+    }
+    #btn-call.audio-on {
+      background: #16c24a;
+      box-shadow: 0 0 0 3px rgba(22,194,74,0.4), 0 4px 24px rgba(22,194,74,0.8);
+      opacity: 1;
+      animation: none;
+    }
 
     /* Toast Notification */
     #toast {
@@ -431,6 +448,7 @@
   <!-- Bottom Control Bar -->
   <div id="bottom-bar">
     <button class="ctrl-btn" id="btn-hand" title="Raise Hand">✋</button>
+    <button class="ctrl-btn" id="btn-call" title="Enable/Disable Audio">🔇</button>
   </div>
 
   <!-- Toast Notification -->
@@ -440,6 +458,22 @@
   <div id="audio-unlock-overlay">
     <div class="unlock-text">🔊 Tap to enable audio and hear the teacher</div>
     <button class="unlock-btn" id="unlockAudioBtn">Enable Audio</button>
+  </div>
+
+
+  <!-- Quran PDF Viewer Panel (student - read only) -->
+  <div id="quran-pdf-panel" style="display:none;position:absolute;inset:0;top:var(--top-margin);z-index:28;background:#1a1a1a;flex-direction:column;overflow:hidden;">
+    <div style="background:#0d0d0d;padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.08);flex-shrink:0;">
+      <span style="color:rgba(255,255,255,0.6);font-size:12px;font-weight:600;">📄 Quran</span>
+      <span id="qpdf-page-label" style="color:#fff;font-size:13px;font-weight:700;margin-left:8px;">Page 1</span>
+      <span id="qpdf-total" style="color:rgba(255,255,255,0.4);font-size:12px;">/ —</span>
+      <div style="flex:1;"></div>
+      <span style="color:rgba(255,255,255,0.3);font-size:10px;">Teacher controlled</span>
+    </div>
+    <div id="qpdf-container" style="flex:1;overflow-y:auto;overflow-x:hidden;display:flex;justify-content:center;align-items:flex-start;background:#2a2a2a;position:relative;">
+      <canvas id="qpdf-canvas" style="display:block;max-width:100%;"></canvas>
+      <canvas id="qpdf-draw-canvas" style="position:absolute;top:0;left:0;touch-action:none;cursor:default;pointer-events:none;"></canvas>
+    </div>
   </div>
 
 </div>

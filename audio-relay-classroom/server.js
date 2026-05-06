@@ -26,6 +26,7 @@ fs.emptyDir(uploadsDir).catch(() => {});
 console.log('[upload] cleaned up leftover uploads on startup');
 
 app.use(express.static("public"));
+app.use("/assets", express.static(path.join(__dirname, "assets")));
 app.use(express.json({ limit: "50mb" }));
 
 // ── Room validation endpoint ───────────────────────────────────────────────
@@ -317,6 +318,25 @@ io.on("connection", (socket) => {
   socket.on("draw-begin", ({ roomId, x, y, color, width }) => {
     if (socket.roomId) {
       socket.to(roomId).emit("draw-begin", { x, y, color, width });
+    }
+  });
+
+  // ── Quran PDF sync ─────────────────────────────────────────────────────
+  socket.on("quran-sync", ({ roomId, page, scrollPercent }) => {
+    if (socket.roomId && socket.role === "teacher") {
+      socket.to(roomId).emit("quran-sync", { page, scrollPercent });
+    }
+  });
+
+  socket.on("quran-open", ({ roomId }) => {
+    if (socket.roomId && socket.role === "teacher") {
+      socket.to(roomId).emit("quran-open");
+    }
+  });
+
+  socket.on("quran-close", ({ roomId }) => {
+    if (socket.roomId && socket.role === "teacher") {
+      socket.to(roomId).emit("quran-close");
     }
   });
 
