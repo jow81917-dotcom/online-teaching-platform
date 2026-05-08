@@ -224,23 +224,29 @@ function startDraw(e) {
   isDrawing = true;
   const p = getCanvasPos(e);
   lastX = p.x; lastY = p.y;
-  
+
   // Local drawing
   ctx.beginPath();
   ctx.arc(lastX, lastY, penSize / 2, 0, Math.PI * 2);
   ctx.fillStyle = penColor;
   ctx.fill();
-  
-  // Send draw-begin to students - starts a new stroke
-  socket.emit("draw-begin", { roomId, x: lastX, y: lastY, color: penColor, width: penSize });
-  
+
+  // Send normalized coords (0-1) and normalized width
+  socket.emit("draw-begin", {
+    roomId,
+    x: lastX / canvas.width,
+    y: lastY / canvas.height,
+    color: penColor,
+    width: penSize / canvas.width
+  });
+
   e.preventDefault();
 }
 
 function draw(e) {
   if (!penActive || !isDrawing) return;
   const p = getCanvasPos(e);
-  
+
   // Local drawing
   ctx.beginPath();
   ctx.moveTo(lastX, lastY);
@@ -249,10 +255,16 @@ function draw(e) {
   ctx.lineWidth = penSize;
   ctx.lineCap = ctx.lineJoin = 'round';
   ctx.stroke();
-  
-  // Send draw event to students
-  socket.emit("draw", { roomId, x: p.x, y: p.y, color: penColor, width: penSize });
-  
+
+  // Send normalized coords (0-1) and normalized width
+  socket.emit("draw", {
+    roomId,
+    x: p.x / canvas.width,
+    y: p.y / canvas.height,
+    color: penColor,
+    width: penSize / canvas.width
+  });
+
   lastX = p.x; lastY = p.y;
   e.preventDefault();
 }

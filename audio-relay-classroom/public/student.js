@@ -510,32 +510,37 @@ function showMaterial(url) {
 }
 
 socket.on("draw-begin", ({ x, y, color, width }) => {
+  const px = x * canvas.width;
+  const py = y * canvas.height;
+  const pw = width * canvas.width;
   ctx.beginPath();
-  ctx.arc(x, y, width / 2, 0, Math.PI * 2);
+  ctx.arc(px, py, pw / 2, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(x, y);
-  currentDrawX = x;
-  currentDrawY = y;
+  ctx.moveTo(px, py);
+  currentDrawX = px;
+  currentDrawY = py;
   lastReceivedColor = color;
-  lastReceivedWidth = width;
+  lastReceivedWidth = pw;
 });
 
 socket.on("draw", ({ x, y, color, width }) => {
+  const px = x * canvas.width;
+  const py = y * canvas.height;
+  const pw = (width * canvas.width) || lastReceivedWidth;
   const useColor = color || lastReceivedColor;
-  const useWidth = width || lastReceivedWidth;
   ctx.beginPath();
   ctx.moveTo(currentDrawX, currentDrawY);
-  ctx.lineTo(x, y);
+  ctx.lineTo(px, py);
   ctx.strokeStyle = useColor;
-  ctx.lineWidth = useWidth;
+  ctx.lineWidth = pw;
   ctx.lineCap = ctx.lineJoin = 'round';
   ctx.stroke();
-  currentDrawX = x;
-  currentDrawY = y;
+  currentDrawX = px;
+  currentDrawY = py;
   lastReceivedColor = useColor;
-  lastReceivedWidth = useWidth;
+  lastReceivedWidth = pw;
 });
 
 socket.on("draw-end", () => { ctx.beginPath(); });
