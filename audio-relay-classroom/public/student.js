@@ -1,5 +1,5 @@
 // =============================================================================
-// STUDENT — WebRTC Audio Classroom with Fixed Drawing Sync
+// STUDENT — WebRTC Audio Classroom
 // =============================================================================
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -9,17 +9,17 @@ let studentName = urlParams.get("name") || "Student-" + Math.random().toString(3
 const SERVER_URL = window.location.origin;
 const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
 
-// ── DOM refs (DrawCall style) ──────────────────────────────────────────────
-const imageContainer = document.getElementById('image-container');
-const bgImage        = document.getElementById('bg-image');
-const canvas         = document.getElementById('draw-canvas');
-const ctx            = canvas.getContext('2d');
-const placeholder    = document.getElementById('placeholder');
-const btnHand        = document.getElementById('btn-hand');
-const btnCall        = document.getElementById('btn-call');
-const pillAudio      = document.getElementById('pill-audio');
-const pillSpeaking   = document.getElementById('pill-speaking');
-const toast          = document.getElementById('toast');
+// ── DOM refs ──────────────────────────────────────────────────────────────
+const imageContainer     = document.getElementById('image-container');
+const bgImage            = document.getElementById('bg-image');
+const canvas             = document.getElementById('draw-canvas');
+const ctx                = canvas.getContext('2d');
+const placeholder        = document.getElementById('placeholder');
+const btnHand            = document.getElementById('btn-hand');
+const btnCall            = document.getElementById('btn-call');
+const pillAudio          = document.getElementById('pill-audio');
+const pillSpeaking       = document.getElementById('pill-speaking');
+const toast              = document.getElementById('toast');
 const audioUnlockOverlay = document.getElementById('audio-unlock-overlay');
 const unlockAudioBtn     = document.getElementById('unlockAudioBtn');
 const teacherDot         = document.getElementById('teacherDot');
@@ -47,15 +47,13 @@ const ICE_CONFIG = IS_LOCAL
       iceCandidatePoolSize: 10
     };
 
+// ── Helpers ───────────────────────────────────────────────────────────────
 function logCandidate(label, c) {
   if (!c) return;
-  const type = c.type || "?";
-  const proto = c.protocol || "?";
-  const addr = c.address || c.ip || "?";
-  const port = c.port || "?";
+  const type = c.type || "?", proto = c.protocol || "?";
+  const addr = c.address || c.ip || "?", port = c.port || "?";
   console.log(`[ICE][${label}] ${type} ${proto} ${addr}:${port}`);
-  if (type === "relay") console.log(`%c[ICE][${label}] ✅ TURN relay candidate gathered`, "color:green;font-weight:bold");
-  if (type === "srflx") console.log(`%c[ICE][${label}] ✅ STUN srflx candidate gathered`, "color:blue");
+  if (type === "relay") console.log(`%c[ICE][${label}] ✅ TURN relay`, "color:green;font-weight:bold");
 }
 
 function preferOpus(sdp) {
@@ -103,7 +101,7 @@ function showToast(msg, bgColor, textColor) {
   setTimeout(() => toast.classList.remove('show'), 2600);
 }
 
-// ── Canvas resize for drawing sync ────────────────────────────────────────
+// ── Canvas ────────────────────────────────────────────────────────────────
 function resizeCanvas() {
   const rect = canvas.getBoundingClientRect();
   if (canvas.width !== rect.width || canvas.height !== rect.height) {
@@ -116,22 +114,9 @@ function resizeCanvas() {
   }
 }
 
-// FIXED: Drawing State for Student with proper coordinate scaling
-let currentDrawX = 0;
-let currentDrawY = 0;
-let lastReceivedColor = '#ffffff';
-let lastReceivedWidth = 4;
-
-// Helper function to scale coordinates from teacher canvas to student canvas
-function scaleCoordinates(x, y) {
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = canvas.width / rect.width;
-  const scaleY = canvas.height / rect.height;
-  return {
-    x: x * scaleX,
-    y: y * scaleY
-  };
-}
+// Drawing state
+let currentDrawX = 0, currentDrawY = 0;
+let lastReceivedColor = '#ffffff', lastReceivedWidth = 4;
 
 // ── State ─────────────────────────────────────────────────────────────────
 let inboundPeer  = null;
@@ -150,13 +135,12 @@ let audioUnlocked = false;
 // ── Socket ────────────────────────────────────────────────────────────────
 socket.on("connect", () => {
   myId = socket.id;
-  console.log("[student] socket connected:", socket.id);
+  console.log("[student] connected:", socket.id);
   socket.emit("join-as-student", roomId, studentName);
   showToast("Connected to server", "rgba(52,199,89,0.2)", "#34c759");
 });
 
 socket.on("disconnect", () => {
-  console.log("[student] disconnected");
   updateTeacherStatus(false);
   updateCallState(false);
   closeInboundPeer();
@@ -165,20 +149,17 @@ socket.on("disconnect", () => {
 });
 
 socket.on("student-joined", ({ hasTeacher, activeSpeaker, material }) => {
-  console.log("[student] joined room. hasTeacher:", hasTeacher);
   updateTeacherStatus(hasTeacher);
   updateActiveSpeakerUI(activeSpeaker);
   if (material) showMaterial(material.url || material);
 });
 
 socket.on("teacher-arrived", () => {
-  console.log("[student] teacher has arrived");
   updateTeacherStatus(true);
   showToast("Teacher is online", "rgba(52,199,89,0.2)", "#34c759");
 });
 
 socket.on("teacher-left", () => {
-  console.log("[student] teacher left");
   updateTeacherStatus(false);
   updateCallState(false);
   closeInboundPeer();
@@ -187,7 +168,6 @@ socket.on("teacher-left", () => {
 });
 
 socket.on("session-ended", () => {
-  console.log("[student] session ended by schedule");
   closeInboundPeer();
   closeOutboundPeer();
   updateCallState(false);
@@ -197,33 +177,24 @@ socket.on("session-ended", () => {
 
 // ── WebRTC signaling ──────────────────────────────────────────────────────
 socket.on("webrtc-offer", async ({ fromId, sdp }) => {
-  console.log("[student] received webrtc-offer from teacher:", fromId.substr(0,6));
   teacherId = fromId;
   await createInboundPeer(fromId, sdp);
 });
 
 socket.on("webrtc-answer-student", ({ sdp }) => {
   if (!outboundPeer) return;
-  console.log("[outbound] received answer from teacher");
   outboundPeer.pc.setRemoteDescription(new RTCSessionDescription(sdp))
-    .then(() => {
-      console.log("[outbound] remote desc set, flushing", outboundPeer.iceBuf.length, "buffered candidates");
-      flushIceBuf(outboundPeer, "outbound");
-    })
+    .then(() => flushIceBuf(outboundPeer, "outbound"))
     .catch(e => console.error("[outbound] setRemoteDescription:", e));
 });
 
 socket.on("ice-candidate", ({ candidate, peerType }) => {
   const peer = peerType === "outbound" ? outboundPeer : inboundPeer;
   if (!peer || !candidate) return;
-
-  const label = peerType === "outbound" ? "outbound" : "inbound";
   const pc = peer.pc;
   if (pc.remoteDescription && pc.remoteDescription.type) {
-    pc.addIceCandidate(new RTCIceCandidate(candidate))
-      .catch(e => console.warn(`[ice:${label}] addIceCandidate:`, e));
+    pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
   } else {
-    console.log(`[ice:${label}] buffering candidate (no remote desc yet)`);
     peer.iceBuf.push(candidate);
   }
 });
@@ -231,8 +202,6 @@ socket.on("ice-candidate", ({ candidate, peerType }) => {
 // ── Inbound peer: receive teacher audio ───────────────────────────────────
 async function createInboundPeer(fromId, offerSdp) {
   closeInboundPeer();
-  console.log("[inbound] creating peer to receive teacher audio");
-
   const pc = new RTCPeerConnection(ICE_CONFIG);
   inboundPeer = { pc, iceBuf: [], restartTimer: null };
 
@@ -240,56 +209,27 @@ async function createInboundPeer(fromId, offerSdp) {
     if (candidate) {
       logCandidate("inbound", candidate);
       socket.emit("ice-candidate", { targetId: fromId, candidate, peerType: "outbound" });
-    } else {
-      console.log("[inbound] ICE gathering complete");
     }
-  };
-
-  pc.onicegatheringstatechange = () => {
-    console.log("[inbound] gathering:", pc.iceGatheringState);
-  };
-
-  pc.oniceconnectionstatechange = () => {
-    console.log("[inbound] ICE:", pc.iceConnectionState);
   };
 
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
     console.log("[inbound] conn:", s);
-
-    if (inboundPeer && inboundPeer.restartTimer) {
-      clearTimeout(inboundPeer.restartTimer);
-      inboundPeer.restartTimer = null;
-    }
-
+    if (inboundPeer?.restartTimer) { clearTimeout(inboundPeer.restartTimer); inboundPeer.restartTimer = null; }
     if (s === "connected") {
-      console.log("%c[inbound] ✅ CONNECTED — audio should be flowing", "color:green;font-weight:bold");
       updateCallState(true);
-      if (teacherAudio && audioUnlocked) {
-        teacherAudio.play().catch(e => console.warn("[inbound] play() on connected:", e));
-      }
+      if (teacherAudio && audioUnlocked) teacherAudio.play().catch(() => {});
     }
-
-    if (s === "failed") {
-      console.warn("[inbound] ❌ FAILED — restarting ICE");
-      updateCallState(false);
-      pc.restartIce();
-    }
-
+    if (s === "failed") { updateCallState(false); pc.restartIce(); }
     if (s === "disconnected") {
-      console.warn("[inbound] disconnected — will restart in 4s if not recovered");
       updateCallState(false);
       inboundPeer.restartTimer = setTimeout(() => {
-        if (pc.connectionState !== "connected" && pc.connectionState !== "closed") {
-          console.warn("[inbound] still disconnected, forcing ICE restart");
-          pc.restartIce();
-        }
+        if (pc.connectionState !== "connected" && pc.connectionState !== "closed") pc.restartIce();
       }, 4000);
     }
   };
 
   pc.ontrack = ({ streams }) => {
-    console.log("[inbound] track received, streams:", streams.length);
     if (!teacherAudio) {
       teacherAudio = new Audio();
       teacherAudio.autoplay = true;
@@ -298,32 +238,24 @@ async function createInboundPeer(fromId, offerSdp) {
       document.body.appendChild(teacherAudio);
     }
     teacherAudio.srcObject = streams[0];
-    // Always attempt play — browser will allow it if user already clicked unlock
     teacherAudio.play()
       .then(() => {
-        console.log("[inbound] play() succeeded");
         audioEnabled = true;
+        audioUnlocked = true;
         updateCallState(true);
         updateAudioEnabledState(true);
-        // Hide unlock overlay since audio is now playing
-        audioUnlocked = true;
         audioUnlockOverlay.classList.add('hidden');
       })
-      .catch(e => {
-        console.warn("[inbound] play() blocked by autoplay policy, waiting for user gesture:", e.name);
-        // Overlay stays visible so user can click to unlock
-      });
+      .catch(e => console.warn("[inbound] play() blocked:", e.name));
   };
 
   try {
     await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
-    console.log("[inbound] remote desc set, flushing", inboundPeer.iceBuf.length, "buffered candidates");
     flushIceBuf(inboundPeer, "inbound");
     const answer = await pc.createAnswer();
     answer.sdp = preferOpus(answer.sdp);
     await pc.setLocalDescription(answer);
     socket.emit("webrtc-answer", { targetId: fromId, sdp: pc.localDescription });
-    console.log("[inbound] answer sent");
   } catch (e) {
     console.error("[inbound] answer failed:", e);
   }
@@ -335,32 +267,18 @@ function closeInboundPeer() {
     inboundPeer.pc.close();
     inboundPeer = null;
   }
-  if (teacherAudio) {
-    teacherAudio.srcObject = null;
-    teacherAudio.remove();
-    teacherAudio = null;
-  }
+  if (teacherAudio) { teacherAudio.srcObject = null; teacherAudio.remove(); teacherAudio = null; }
   updateCallState(false);
 }
 
 // ── Outbound peer: send mic to teacher when approved ──────────────────────
 async function createOutboundPeer(toTeacherId) {
   closeOutboundPeer();
-  console.log("[outbound] creating peer to send mic to teacher");
-
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        channelCount: 1,
-        sampleRate: 48000
-      }
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 }
     });
-    console.log("[outbound] mic acquired");
   } catch (e) {
-    console.error("[outbound] getUserMedia:", e);
     showToast("Microphone access denied", "rgba(229,32,46,0.2)", "#ff453a");
     return;
   }
@@ -373,41 +291,20 @@ async function createOutboundPeer(toTeacherId) {
     if (candidate) {
       logCandidate("outbound", candidate);
       socket.emit("ice-candidate", { targetId: toTeacherId, candidate, peerType: "inbound" });
-    } else {
-      console.log("[outbound] ICE gathering complete");
     }
-  };
-
-  pc.onicegatheringstatechange = () => {
-    console.log("[outbound] gathering:", pc.iceGatheringState);
-  };
-
-  pc.oniceconnectionstatechange = () => {
-    console.log("[outbound] ICE:", pc.iceConnectionState);
   };
 
   pc.onconnectionstatechange = () => {
     const s = pc.connectionState;
-    console.log("[outbound] conn:", s);
-    if (s === "connected") {
-      console.log("%c[outbound] ✅ CONNECTED — mic flowing to teacher", "color:green;font-weight:bold");
-      pillSpeaking.classList.add('show');
-    }
-    if (s === "failed") { 
-      console.warn("[outbound] ❌ FAILED — restarting ICE"); 
-      pc.restartIce();
-      pillSpeaking.classList.remove('show');
-    }
-    if (s === "closed" || s === "disconnected") {
-      pillSpeaking.classList.remove('show');
-    }
+    if (s === "connected") pillSpeaking.classList.add('show');
+    if (s === "failed") { pc.restartIce(); pillSpeaking.classList.remove('show'); }
+    if (s === "closed" || s === "disconnected") pillSpeaking.classList.remove('show');
   };
 
   try {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit("webrtc-offer-student", { targetId: toTeacherId, sdp: pc.localDescription });
-    console.log("[outbound] offer sent to teacher");
   } catch (e) {
     console.error("[outbound] createOffer:", e);
   }
@@ -430,26 +327,11 @@ function updateTeacherStatus(online) {
   }
 }
 
-// ── Leave button ──────────────────────────────────────────────────────────
-document.getElementById('btn-leave').addEventListener('click', () => {
-  if (confirm('Leave this session?')) {
-    closeInboundPeer();
-    closeOutboundPeer();
-    sessionStorage.removeItem('classroom_room');
-    sessionStorage.removeItem('classroom_name');
-    window.location.href = '/dashboard';
-  }
-});
-
-// ── Refresh persistence ───────────────────────────────────────────────────
-sessionStorage.setItem('classroom_room', roomId);
-sessionStorage.setItem('classroom_name', studentName);
-
 function updateCallState(active) {
   isInCall = active;
   if (active && audioEnabled) {
-    btnCall.classList.add('in-call');
-    btnCall.classList.add('audio-on');
+    btnCall.classList.add('in-call', 'audio-on');
+    btnCall.classList.remove('in-call');
     btnCall.innerHTML = '🎙️';
     pillAudio.classList.add('show');
   } else if (active && !audioEnabled) {
@@ -457,9 +339,8 @@ function updateCallState(active) {
     btnCall.classList.remove('audio-on');
     btnCall.innerHTML = '🔇';
     pillAudio.classList.remove('show');
-  } else if (!active) {
-    btnCall.classList.remove('in-call');
-    btnCall.classList.remove('audio-on');
+  } else {
+    btnCall.classList.remove('in-call', 'audio-on');
     btnCall.innerHTML = '🔇';
     pillAudio.classList.remove('show');
   }
@@ -468,8 +349,7 @@ function updateCallState(active) {
 function updateAudioEnabledState(enabled) {
   audioEnabled = enabled;
   if (enabled && isInCall) {
-    btnCall.classList.add('in-call');
-    btnCall.classList.add('audio-on');
+    btnCall.classList.add('in-call', 'audio-on');
     btnCall.innerHTML = '🎙️';
     pillAudio.classList.add('show');
   } else if (!enabled && isInCall) {
@@ -477,9 +357,8 @@ function updateAudioEnabledState(enabled) {
     btnCall.classList.remove('audio-on');
     btnCall.innerHTML = '🔇';
     pillAudio.classList.remove('show');
-  } else if (!enabled && !isInCall) {
-    btnCall.classList.remove('in-call');
-    btnCall.classList.remove('audio-on');
+  } else {
+    btnCall.classList.remove('in-call', 'audio-on');
     btnCall.innerHTML = '🔇';
     pillAudio.classList.remove('show');
   }
@@ -501,51 +380,66 @@ function updateHandButtonState() {
 }
 
 function updateActiveSpeakerUI(speakerId) {
-  if (speakerId === "teacher") {
-    speakerDisplay.innerHTML = '👨🏫 Teacher speaking';
-  } else if (speakerId === myId) {
-    speakerDisplay.innerHTML = '🎤 You are speaking';
-  } else {
-    speakerDisplay.innerHTML = '👨🎓 Student speaking';
-  }
+  if (speakerId === "teacher") speakerDisplay.innerHTML = '👨🏫 Teacher speaking';
+  else if (speakerId === myId) speakerDisplay.innerHTML = '🎤 You are speaking';
+  else speakerDisplay.innerHTML = '👨🎓 Student speaking';
 }
 
-// ── Audio Unlock (Browser Autoplay Policy) ────────────────────────────────
+// ── Audio Unlock ──────────────────────────────────────────────────────────
 function unlockAudio() {
   if (audioUnlocked) return;
   audioUnlocked = true;
   audioEnabled  = true;
   audioUnlockOverlay.classList.add('hidden');
-  console.log("[audio] unlocked by user gesture");
-
-  // Play immediately if track already arrived
   if (teacherAudio) {
     teacherAudio.muted = false;
     teacherAudio.play()
       .then(() => { updateCallState(true); updateAudioEnabledState(true); })
       .catch(e => console.warn("[audio] play() after unlock:", e));
   }
-  // If teacherAudio is null, ontrack will play it once the WebRTC track arrives
-
-  showToast("Audio enabled! You can now hear the teacher", "rgba(52,199,89,0.2)", "#34c759");
+  showToast("Audio enabled!", "rgba(52,199,89,0.2)", "#34c759");
 }
 
-unlockAudioBtn.addEventListener('click', (e) => {
-  e.stopPropagation();
-  unlockAudio();
+unlockAudioBtn.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio(); });
+document.addEventListener('click', () => { if (!audioUnlocked) unlockAudio(); }, { once: true });
+
+// ── Call button: tap to unlock audio ─────────────────────────────────────
+btnCall.addEventListener('click', () => {
+  if (!audioUnlocked) {
+    unlockAudio();
+  } else if (teacherAudio) {
+    if (teacherAudio.muted) {
+      teacherAudio.muted = false;
+      updateAudioEnabledState(true);
+      showToast("Audio unmuted", "rgba(52,199,89,0.2)", "#34c759");
+    } else {
+      teacherAudio.muted = true;
+      updateAudioEnabledState(false);
+      showToast("Audio muted", "rgba(255,69,58,0.2)", "#ff453a");
+    }
+  }
 });
 
-document.addEventListener('click', () => {
-  if (!audioUnlocked) unlockAudio();
-}, { once: true });
+// ── Leave button ──────────────────────────────────────────────────────────
+document.getElementById('btn-leave').addEventListener('click', () => {
+  if (confirm('Leave this session?')) {
+    closeInboundPeer();
+    closeOutboundPeer();
+    sessionStorage.removeItem('classroom_room');
+    sessionStorage.removeItem('classroom_name');
+    window.location.href = '/dashboard';
+  }
+});
 
-// ── Raise Hand / Cancel Hand ──────────────────────────────────────────────
+sessionStorage.setItem('classroom_room', roomId);
+sessionStorage.setItem('classroom_name', studentName);
+
+// ── Raise Hand ────────────────────────────────────────────────────────────
 btnHand.addEventListener('click', () => {
   if (canSpeak) {
     showToast("You are already speaking", "rgba(255,204,0,0.2)", "#ffcc00");
     return;
   }
-  
   if (handRaised) {
     socket.emit("cancel-hand", roomId);
     handRaised = false;
@@ -559,20 +453,20 @@ btnHand.addEventListener('click', () => {
   }
 });
 
-// ── Call/Audio Button (removed from UI, stub only) ───────────────────────
-// btnCall is a stub object, no event listener needed
-
 // ── Socket Events for Hand/Speaker ────────────────────────────────────────
 socket.on("speak-approved", ({ teacherSocketId }) => {
-  canSpeak=true; handRaised=false; teacherId=teacherSocketId;
-  btnHand.classList.remove("raised"); btnHand.classList.add("speaking");
-  btnHand.innerHTML="🎙️"; pillSpeaking.classList.add("show");
+  canSpeak = true;
+  handRaised = false;
+  teacherId = teacherSocketId;
+  btnHand.classList.remove("raised");
+  btnHand.classList.add("speaking");
+  btnHand.innerHTML = "🎙️";
+  pillSpeaking.classList.add("show");
   createOutboundPeer(teacherSocketId);
-  showToast("🎙️ Your mic is now open!","rgba(22,194,74,0.2)","#16c24a");
-});;
+  showToast("🎙️ Your mic is now open!", "rgba(22,194,74,0.2)", "#16c24a");
+});
 
 socket.on("speak-revoked", () => {
-  console.log("[student] speak revoked");
   canSpeak = false;
   handRaised = false;
   updateHandButtonState();
@@ -586,7 +480,7 @@ socket.on("hand-rejected", () => {
   showToast("Your request to speak was declined", "rgba(255,69,58,0.2)", "#ff453a");
 });
 
-socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
+socket.on("speaker-changed", ({ speakerId }) => {
   updateActiveSpeakerUI(speakerId);
   if (speakerId !== myId && canSpeak) {
     canSpeak = false;
@@ -600,7 +494,7 @@ socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
   }
 });
 
-// ── Material & Drawing Sync (FIXED - Proper Y-axis scaling) ─────────────
+// ── Material & Drawing Sync ───────────────────────────────────────────────
 socket.on("material-shared", ({ url }) => showMaterial(url));
 
 function showMaterial(url) {
@@ -608,7 +502,6 @@ function showMaterial(url) {
   bgImage.style.display = 'block';
   imageContainer.style.display = 'flex';
   placeholder.style.display = 'none';
-  
   bgImage.onload = () => {
     resizeCanvas();
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -616,211 +509,45 @@ function showMaterial(url) {
   };
 }
 
-// FIXED: Drawing events from teacher with proper coordinate scaling
-socket.on("draw-begin", ({ x, y, color, width, pdfMode }) => {
-  if (pdfMode) return; // handled by PDF handler
-  // Scale coordinates to match student's canvas size
-  const scaled = scaleCoordinates(x, y);
-  
-  // Start a new path - prevents connecting to previous strokes
+socket.on("draw-begin", ({ x, y, color, width }) => {
   ctx.beginPath();
-  
-  // Set drawing styles
-  ctx.lineWidth = width;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = color;
-  
-  // Move to starting position
-  ctx.moveTo(scaled.x, scaled.y);
-  
-  // Store current position for draw events
-  currentDrawX = scaled.x;
-  currentDrawY = scaled.y;
-  lastReceivedColor = color;
-  lastReceivedWidth = width;
-  
-  // Draw starting dot
-  ctx.beginPath();
-  ctx.arc(scaled.x, scaled.y, width / 2, 0, Math.PI * 2);
+  ctx.arc(x, y, width / 2, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
   ctx.beginPath();
-  ctx.moveTo(scaled.x, scaled.y);
+  ctx.moveTo(x, y);
+  currentDrawX = x;
+  currentDrawY = y;
+  lastReceivedColor = color;
+  lastReceivedWidth = width;
 });
 
-socket.on("draw", ({ x, y, color, width, pdfMode }) => {
-  if (pdfMode) return; // handled by PDF handler
-  // Scale coordinates to match student's canvas size
-  const scaled = scaleCoordinates(x, y);
-  
-  // Use provided color/width or fall back to last received
+socket.on("draw", ({ x, y, color, width }) => {
   const useColor = color || lastReceivedColor;
   const useWidth = width || lastReceivedWidth;
-  
-  ctx.lineWidth = useWidth;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = useColor;
-  
-  // Draw line from last position to new position
   ctx.beginPath();
   ctx.moveTo(currentDrawX, currentDrawY);
-  ctx.lineTo(scaled.x, scaled.y);
+  ctx.lineTo(x, y);
+  ctx.strokeStyle = useColor;
+  ctx.lineWidth = useWidth;
+  ctx.lineCap = ctx.lineJoin = 'round';
   ctx.stroke();
-  
-  // Update current position
-  currentDrawX = scaled.x;
-  currentDrawY = scaled.y;
+  currentDrawX = x;
+  currentDrawY = y;
   lastReceivedColor = useColor;
   lastReceivedWidth = useWidth;
 });
 
-socket.on("draw-end", () => {
-  // End the current path - next draw-begin will start a fresh path
-  ctx.beginPath();
-});
+socket.on("draw-end", () => { ctx.beginPath(); });
 
 socket.on("clear-canvas", () => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.beginPath();
-  // Also clear PDF draw canvas if open
-  if (sPdfDrawCtx) {
-    const dc = document.getElementById('qpdf-draw-canvas');
-    if (dc) sPdfDrawCtx.clearRect(0, 0, dc.width, dc.height);
-  }
 });
 
-// ── Window resize handling ────────────────────────────────────────────────
+// ── Window resize ─────────────────────────────────────────────────────────
 window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
-window.addEventListener('load', () => setTimeout(resizeCanvas, 100));
-
+window.addEventListener('load',   () => setTimeout(resizeCanvas, 100));
 resizeCanvas();
-
-
-// ── Quran PDF Viewer (student - synced from teacher) ──────────────────────
-const QURAN_PDF_URL = '/assets/quran.pdf';
-let sPdfDoc = null;
-let sPdfCurrentPage = 1;
-let sPdfRendering = false;
-let sPdfPendingPage = null;
-let sPdfDrawCtx = null;
-
-function getPdfDrawCtx() {
-  if (sPdfDrawCtx) return sPdfDrawCtx;
-  const el = document.getElementById('qpdf-draw-canvas');
-  if (el && el.width > 0) { sPdfDrawCtx = el.getContext('2d'); return sPdfDrawCtx; }
-  return null;
-}
-
-function loadStudentPDF(callback) {
-  if (sPdfDoc) { if (callback) callback(); return; }
-  const loadDoc = () => {
-    pdfjsLib.getDocument(QURAN_PDF_URL).promise.then(pdf => {
-      sPdfDoc = pdf;
-      const tot = document.getElementById('qpdf-total');
-      if (tot) tot.textContent = '/ ' + pdf.numPages;
-      if (callback) callback();
-    }).catch(e => console.error('[pdf student]', e));
-  };
-  if (!window.pdfjsLib) {
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    script.onload = () => {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      loadDoc();
-    };
-    document.head.appendChild(script);
-  } else { loadDoc(); }
-}
-
-function renderStudentPDFPage(num) {
-  if (!sPdfDoc) { loadStudentPDF(() => renderStudentPDFPage(num)); return; }
-  if (sPdfRendering) { sPdfPendingPage = num; return; }
-  sPdfRendering = true;
-  sPdfCurrentPage = num;
-  const lbl = document.getElementById('qpdf-page-label');
-  if (lbl) lbl.textContent = 'Page ' + num;
-  sPdfDoc.getPage(num).then(page => {
-    const container = document.getElementById('qpdf-container');
-    const scale = container.clientWidth / page.getViewport({ scale: 1 }).width;
-    const viewport = page.getViewport({ scale: Math.max(scale, 0.8) });
-    const pdfCanvas = document.getElementById('qpdf-canvas');
-    pdfCanvas.width  = viewport.width;
-    pdfCanvas.height = viewport.height;
-    const drawEl = document.getElementById('qpdf-draw-canvas');
-    drawEl.width  = viewport.width;
-    drawEl.height = viewport.height;
-    sPdfDrawCtx = drawEl.getContext('2d');
-    page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport }).promise.then(() => {
-      sPdfRendering = false;
-      if (sPdfPendingPage) { const p = sPdfPendingPage; sPdfPendingPage = null; renderStudentPDFPage(p); }
-    });
-  });
-}
-
-socket.on('quran-open', () => {
-  const panel = document.getElementById('quran-pdf-panel');
-  if (panel) { panel.style.display = 'flex'; loadStudentPDF(() => renderStudentPDFPage(sPdfCurrentPage)); }
-});
-
-socket.on('quran-close', () => {
-  const panel = document.getElementById('quran-pdf-panel');
-  if (panel) panel.style.display = 'none';
-});
-
-socket.on('quran-sync', ({ page, scrollPercent }) => {
-  const panel = document.getElementById('quran-pdf-panel');
-  if (panel) panel.style.display = 'flex';
-  renderStudentPDFPage(page);
-  setTimeout(() => {
-    const cont = document.getElementById('qpdf-container');
-    if (cont) cont.scrollTop = scrollPercent * (cont.scrollHeight - cont.clientHeight);
-  }, 400);
-});
-
-// PDF draw events from teacher (pdfMode:true)
-socket.on('draw-begin', ({ x, y, color, width, pdfMode }) => {
-  if (!pdfMode) return;
-  const panel = document.getElementById('quran-pdf-panel');
-  if (panel && panel.style.display === 'none') panel.style.display = 'flex';
-  const dctx = getPdfDrawCtx();
-  if (!dctx) return;
-  const el = document.getElementById('qpdf-draw-canvas');
-  dctx.beginPath();
-  dctx.arc(x * el.width, y * el.height, width / 2, 0, Math.PI * 2);
-  dctx.fillStyle = color;
-  dctx.fill();
-  dctx.beginPath();
-  dctx.moveTo(x * el.width, y * el.height);
-});
-
-socket.on('draw', ({ x, y, color, width, pdfMode }) => {
-  if (!pdfMode) return;
-  const dctx = getPdfDrawCtx();
-  if (!dctx) return;
-  const el = document.getElementById('qpdf-draw-canvas');
-  dctx.lineWidth = width;
-  dctx.lineCap = dctx.lineJoin = 'round';
-  dctx.strokeStyle = color;
-  dctx.lineTo(x * el.width, y * el.height);
-  dctx.stroke();
-  dctx.beginPath();
-  dctx.moveTo(x * el.width, y * el.height);
-});
-
-socket.on('draw-end', () => {
-  if (sPdfDrawCtx) sPdfDrawCtx.beginPath();
-});
-
-socket.on('clear-canvas', () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.beginPath();
-  if (sPdfDrawCtx) {
-    const el = document.getElementById('qpdf-draw-canvas');
-    if (el) sPdfDrawCtx.clearRect(0, 0, el.width, el.height);
-  }
-});
 
 console.log("[student] ready, room:", roomId);

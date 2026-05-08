@@ -1336,7 +1336,7 @@ updateSize();
 setTimeout(resizeCanvas, 100);
 
 
-// ── Quran PDF Viewer ──────────────────────────────────────────────────────
+// ── Quran PDF Viewer (renders to main canvas like Qaida) ──────────────────
 const QURAN_PDF_URL = '/assets/quran.pdf';
 
 document.getElementById('src-quran-pdf').addEventListener('click', () => {
@@ -1346,18 +1346,12 @@ document.getElementById('src-quran-pdf').addEventListener('click', () => {
 
 let pdfDoc = null;
 let pdfCurrentPage = 1;
-let pdfRendering = false;
-let pdfPendingPage = null;
-let pdfDrawCtx = null;
-let pdfIsDrawing = false;
-let pdfLastX = 0, pdfLastY = 0;
 
 function openQuranPDF() {
-  const panel = document.getElementById('quran-pdf-panel');
-  panel.style.display = 'flex';
-  socket.emit('quran-open', { roomId });
-
-  if (pdfDoc) { renderPDFPage(pdfCurrentPage); return; }
+  if (pdfDoc) {
+    renderPDFPageToCanvas(pdfCurrentPage);
+    return;
+  }
 
   // Load PDF.js from CDN if not already loaded
   if (!window.pdfjsLib) {
@@ -1378,139 +1372,78 @@ function loadPDF() {
   showToast('Loading Quran PDF...', '#6096ff');
   pdfjsLib.getDocument(QURAN_PDF_URL).promise.then(pdf => {
     pdfDoc = pdf;
-    document.getElementById('qpdf-total').textContent = '/ ' + pdf.numPages;
-    document.getElementById('qpdf-page-input').max = pdf.numPages;
-    renderPDFPage(pdfCurrentPage);
-    setupPDFDrawCanvas();
+    renderPDFPageToCanvas(pdfCurrentPage);
   }).catch(e => {
     showToast('Failed to load PDF', '#ff6b6b');
     console.error('[pdf]', e);
   });
 }
 
-function renderPDFPage(num) {
+function renderPDFPageToCanvas(num) {
   if (!pdfDoc) return;
-  if (pdfRendering) { pdfPendingPage = num; return; }
-  pdfRendering = true;
   pdfCurrentPage = num;
-  document.getElementById('qpdf-page-input').value = num;
 
   pdfDoc.getPage(num).then(page => {
-    const container = document.getElementById('qpdf-container');
-    const scale = container.clientWidth / page.getViewport({ scale: 1 }).width;
-    const viewport = page.getViewport({ scale: Math.max(scale, 0.8) });
+    // Render at high quality
+    const scale = 2.0;
+    const viewport = page.getViewport({ scale });
 
-    const pdfCanvas = document.getElementById('qpdf-canvas');
-    pdfCanvas.width  = viewport.width;
-    pdfCanvas.height = viewport.height;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = viewport.width;
+    offscreen.height = viewport.height;
+    const octx = offscreen.getContext('2d');
 
-    // Sync draw canvas size
-    const dc = document.getElementById('qpdf-draw-canvas');
-    dc.width  = viewport.width;
-    dc.height = viewport.height;
-    pdfDrawCtx = dc.getContext('2d');
-
-    page.render({ canvasContext: pdfCanvas.getContext('2d'), viewport }).promise.then(() => {
-      pdfRendering = false;
-      if (pdfPendingPage) { const p = pdfPendingPage; pdfPendingPage = null; renderPDFPage(p); }
+    page.render({ canvasContext: octx, viewport }).promise.then(() => {
+      const dataUrl = offscreen.toDataURL('image/png');
+      bgImage.src = dataUrl;
+      imageContainer.style.display = 'flex';
+      placeholder.style.display = 'none';
+      btnClear.style.display = 'block';
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      setTimeout(() => resizeCanvas(), 50);
+      socket.emit('share-material', { roomId, url: dataUrl });
+      showToast(`📄 Quran page ${num} shared`, '#16c24a', 'rgba(22,194,74,0.12)', 'rgba(22,194,74,0.35)');
+      showQuranPDFBar(num);
     });
   });
-
-  // Broadcast to students
-  socket.emit('quran-sync', { roomId, page: num, scrollPercent: 0 });
 }
 
-function setupPDFDrawCanvas() {
-  const dc = document.getElementById('qpdf-draw-canvas');
-  if (dc._setup) return;
-  dc._setup = true;
+function showQuranPDFBar(pageNum) {
+  let bar = document.getElementById('quran-pdf-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'quran-pdf-bar';
+    bar.style.cssText = `
+      position:absolute; bottom:105px; left:50%; transform:translateX(-50%);
+      z-index:15; background:rgba(10,10,15,0.92); border:1px solid rgba(255,255,255,0.12);
+      border-radius:20px; padding:6px 12px; display:flex; align-items:center;
+      gap:8px; backdrop-filter:blur(12px); white-space:nowrap;
+    `;
+    document.getElementById('phone').appendChild(bar);
+  }
+  bar.innerHTML = `
+    <span style="color:rgba(255,255,255,0.5);font-size:11px;">📄</span>
+    <button id="qpdf-bar-prev" style="background:rgba(255,255,255,0.1);border:none;border-radius:8px;color:#fff;padding:4px 10px;font-size:14px;cursor:pointer;">&#8592;</button>
+    <input id="qpdf-bar-input" type="number" min="1" max="${pdfDoc.numPages}" value="${pageNum}" style="width:50px;background:#1a1a2e;border:1px solid rgba(255,255,255,0.2);border-radius:8px;color:#fff;padding:4px 6px;font-size:12px;text-align:center;">
+    <span style="color:rgba(255,255,255,0.3);font-size:11px;">/ ${pdfDoc.numPages}</span>
+    <button id="qpdf-bar-next" style="background:rgba(255,255,255,0.1);border:none;border-radius:8px;color:#fff;padding:4px 10px;font-size:14px;cursor:pointer;">&#8594;</button>
+    <button id="qpdf-bar-close" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:14px;cursor:pointer;padding:0 2px;">✕</button>
+  `;
+  bar.style.display = 'flex';
 
-  const getPos = (e) => {
-    const r = dc.getBoundingClientRect();
-    const src = e.touches ? e.touches[0] : e;
-    return {
-      x: (src.clientX - r.left) / r.width,
-      y: (src.clientY - r.top)  / r.height
-    };
+  document.getElementById('qpdf-bar-prev').onclick = () => {
+    if (pdfCurrentPage > 1) renderPDFPageToCanvas(pdfCurrentPage - 1);
   };
-
-  dc.addEventListener('mousedown', (e) => {
-    if (!penActive) return;
-    pdfIsDrawing = true;
-    const p = getPos(e);
-    pdfLastX = p.x; pdfLastY = p.y;
-    pdfDrawCtx.beginPath();
-    socket.emit('draw-begin', { roomId, x: p.x, y: p.y, color: penColor, width: penSize, pdfMode: true });
-    e.preventDefault();
-  });
-
-  dc.addEventListener('mousemove', (e) => {
-    if (!penActive || !pdfIsDrawing) return;
-    const p = getPos(e);
-    pdfDrawCtx.beginPath();
-    pdfDrawCtx.moveTo(pdfLastX * dc.width, pdfLastY * dc.height);
-    pdfDrawCtx.lineTo(p.x * dc.width, p.y * dc.height);
-    pdfDrawCtx.strokeStyle = penColor;
-    pdfDrawCtx.lineWidth = penSize;
-    pdfDrawCtx.lineCap = pdfDrawCtx.lineJoin = 'round';
-    pdfDrawCtx.stroke();
-    socket.emit('draw', { roomId, x: p.x, y: p.y, color: penColor, width: penSize, pdfMode: true });
-    pdfLastX = p.x; pdfLastY = p.y;
-    e.preventDefault();
-  });
-
-  dc.addEventListener('mouseup',    () => { pdfIsDrawing = false; socket.emit('draw-end', { roomId }); });
-  dc.addEventListener('mouseleave', () => { if (pdfIsDrawing) { pdfIsDrawing = false; socket.emit('draw-end', { roomId }); } });
-
-  dc.addEventListener('touchstart', (e) => {
-    if (!penActive) return;
-    e.preventDefault();
-    pdfIsDrawing = true;
-    const p = getPos(e);
-    pdfLastX = p.x; pdfLastY = p.y;
-    socket.emit('draw-begin', { roomId, x: p.x, y: p.y, color: penColor, width: penSize, pdfMode: true });
-  }, { passive: false });
-
-  dc.addEventListener('touchmove', (e) => {
-    if (!penActive || !pdfIsDrawing) return;
-    e.preventDefault();
-    const p = getPos(e);
-    pdfDrawCtx.beginPath();
-    pdfDrawCtx.moveTo(pdfLastX * dc.width, pdfLastY * dc.height);
-    pdfDrawCtx.lineTo(p.x * dc.width, p.y * dc.height);
-    pdfDrawCtx.strokeStyle = penColor;
-    pdfDrawCtx.lineWidth = penSize;
-    pdfDrawCtx.lineCap = pdfDrawCtx.lineJoin = 'round';
-    pdfDrawCtx.stroke();
-    socket.emit('draw', { roomId, x: p.x, y: p.y, color: penColor, width: penSize, pdfMode: true });
-    pdfLastX = p.x; pdfLastY = p.y;
-  }, { passive: false });
-
-  dc.addEventListener('touchend', () => { pdfIsDrawing = false; socket.emit('draw-end', { roomId }); });
+  document.getElementById('qpdf-bar-next').onclick = () => {
+    if (pdfCurrentPage < pdfDoc.numPages) renderPDFPageToCanvas(pdfCurrentPage + 1);
+  };
+  document.getElementById('qpdf-bar-input').onchange = (e) => {
+    const p = parseInt(e.target.value);
+    if (p >= 1 && p <= pdfDoc.numPages) renderPDFPageToCanvas(p);
+  };
+  document.getElementById('qpdf-bar-close').onclick = () => {
+    bar.style.display = 'none';
+  };
 }
-
-// PDF navigation controls
-document.getElementById('qpdf-prev').addEventListener('click', () => {
-  if (pdfCurrentPage > 1) renderPDFPage(pdfCurrentPage - 1);
-});
-document.getElementById('qpdf-next').addEventListener('click', () => {
-  if (pdfDoc && pdfCurrentPage < pdfDoc.numPages) renderPDFPage(pdfCurrentPage + 1);
-});
-document.getElementById('qpdf-page-input').addEventListener('change', (e) => {
-  const p = parseInt(e.target.value);
-  if (pdfDoc && p >= 1 && p <= pdfDoc.numPages) renderPDFPage(p);
-});
-document.getElementById('qpdf-close').addEventListener('click', () => {
-  document.getElementById('quran-pdf-panel').style.display = 'none';
-  socket.emit('quran-close', { roomId });
-});
-
-// Clear PDF draw canvas when clear button is pressed
-const origClearClick = btnClear.onclick;
-btnClear.addEventListener('click', () => {
-  if (pdfDrawCtx) pdfDrawCtx.clearRect(0, 0,
-    document.getElementById('qpdf-draw-canvas').width,
-    document.getElementById('qpdf-draw-canvas').height);
-});
 
 console.log("[teacher] ready, room:", roomId);
