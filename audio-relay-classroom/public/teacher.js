@@ -30,7 +30,6 @@ const btnPen         = document.getElementById('btn-pen');
 const btnHand        = document.getElementById('btn-hand');
 const btnCall        = document.getElementById('btn-call');
 const btnClear       = document.getElementById('btn-clear');
-const pillPen        = document.getElementById('pill-pen');
 const pillMic        = document.getElementById('pill-mic');
 const pillSpeaking   = document.getElementById('pill-speaking');
 const toast          = document.getElementById('toast');
@@ -218,6 +217,41 @@ function getCanvasPos(e) {
   };
 }
 
+function getMaterialRectOnCanvas() {
+  const canvasRect = canvas.getBoundingClientRect();
+  const imageRect = bgImage.getBoundingClientRect();
+  const hasVisibleMaterial = imageContainer.style.display !== 'none' &&
+    bgImage.complete &&
+    bgImage.naturalWidth > 0 &&
+    imageRect.width > 0 &&
+    imageRect.height > 0;
+
+  if (!hasVisibleMaterial || canvasRect.width === 0 || canvasRect.height === 0) {
+    return { left: 0, top: 0, width: canvas.width, height: canvas.height };
+  }
+
+  const scaleX = canvas.width / canvasRect.width;
+  const scaleY = canvas.height / canvasRect.height;
+
+  return {
+    left: (imageRect.left - canvasRect.left) * scaleX,
+    top: (imageRect.top - canvasRect.top) * scaleY,
+    width: imageRect.width * scaleX,
+    height: imageRect.height * scaleY
+  };
+}
+
+function makeDrawPayload(point) {
+  const materialRect = getMaterialRectOnCanvas();
+  return {
+    roomId,
+    x: (point.x - materialRect.left) / materialRect.width,
+    y: (point.y - materialRect.top) / materialRect.height,
+    color: penColor,
+    width: penSize / materialRect.width
+  };
+}
+
 // FIXED: Added draw-begin event
 function startDraw(e) {
   if (!penActive) return;
@@ -231,14 +265,7 @@ function startDraw(e) {
   ctx.fillStyle = penColor;
   ctx.fill();
 
-  // Send normalized coords (0-1) and normalized width
-  socket.emit("draw-begin", {
-    roomId,
-    x: lastX / canvas.width,
-    y: lastY / canvas.height,
-    color: penColor,
-    width: penSize / canvas.width
-  });
+  socket.emit("draw-begin", makeDrawPayload({ x: lastX, y: lastY }));
 
   e.preventDefault();
 }
@@ -256,14 +283,7 @@ function draw(e) {
   ctx.lineCap = ctx.lineJoin = 'round';
   ctx.stroke();
 
-  // Send normalized coords (0-1) and normalized width
-  socket.emit("draw", {
-    roomId,
-    x: p.x / canvas.width,
-    y: p.y / canvas.height,
-    color: penColor,
-    width: penSize / canvas.width
-  });
+  socket.emit("draw", makeDrawPayload(p));
 
   lastX = p.x; lastY = p.y;
   e.preventDefault();
@@ -782,7 +802,6 @@ btnPen.addEventListener('click', () => {
   penActive = !penActive;
   btnPen.classList.toggle('active', penActive);
   canvas.classList.toggle('pen-active', penActive);
-  pillPen.classList.toggle('show', penActive);
   // Also update PDF draw canvas cursor
   const pdfDc = document.getElementById('qpdf-draw-canvas');
   if (pdfDc) pdfDc.style.cursor = penActive ? 'crosshair' : 'default';

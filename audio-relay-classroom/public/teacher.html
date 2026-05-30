@@ -297,6 +297,7 @@
       flex-direction: column;
       gap: 6px;
       align-items: flex-end;
+      pointer-events: none;
     }
 
     .status-pill {
@@ -313,12 +314,6 @@
     }
 
     .status-pill.show { opacity: 1; transform: translateX(0); }
-
-    #pill-pen {
-      background: rgba(37,99,255,0.2);
-      border: 1px solid rgba(37,99,255,0.5);
-      color: #6096ff;
-    }
 
     #pill-mic {
       background: rgba(22,194,74,0.15);
@@ -810,7 +805,6 @@
 
   <!-- Status Pills -->
   <div id="status-bar">
-    <div class="status-pill" id="pill-pen">✏️ Drawing</div>
     <div class="status-pill" id="pill-mic">🎙️ Mic On</div>
     <div class="status-pill" id="pill-speaking">🎤 Student Speaking</div>
   </div>

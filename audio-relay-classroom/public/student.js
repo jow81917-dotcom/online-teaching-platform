@@ -16,7 +16,6 @@ const canvas             = document.getElementById('draw-canvas');
 const ctx                = canvas.getContext('2d');
 const placeholder        = document.getElementById('placeholder');
 const btnHand            = document.getElementById('btn-hand');
-const btnCall            = document.getElementById('btn-call');
 const pillAudio          = document.getElementById('pill-audio');
 const pillSpeaking       = document.getElementById('pill-speaking');
 const toast              = document.getElementById('toast');
@@ -112,6 +111,39 @@ function resizeCanvas() {
       try { ctx.putImageData(saved, 0, 0); } catch(e) {}
     }
   }
+}
+
+function getMaterialRectOnCanvas() {
+  const canvasRect = canvas.getBoundingClientRect();
+  const imageRect = bgImage.getBoundingClientRect();
+  const hasVisibleMaterial = imageContainer.style.display !== 'none' &&
+    bgImage.complete &&
+    bgImage.naturalWidth > 0 &&
+    imageRect.width > 0 &&
+    imageRect.height > 0;
+
+  if (!hasVisibleMaterial || canvasRect.width === 0 || canvasRect.height === 0) {
+    return { left: 0, top: 0, width: canvas.width, height: canvas.height };
+  }
+
+  const scaleX = canvas.width / canvasRect.width;
+  const scaleY = canvas.height / canvasRect.height;
+
+  return {
+    left: (imageRect.left - canvasRect.left) * scaleX,
+    top: (imageRect.top - canvasRect.top) * scaleY,
+    width: imageRect.width * scaleX,
+    height: imageRect.height * scaleY
+  };
+}
+
+function materialPointToCanvas(x, y, width) {
+  const materialRect = getMaterialRectOnCanvas();
+  return {
+    x: materialRect.left + x * materialRect.width,
+    y: materialRect.top + y * materialRect.height,
+    width: width * materialRect.width
+  };
 }
 
 // Drawing state
@@ -329,39 +361,12 @@ function updateTeacherStatus(online) {
 
 function updateCallState(active) {
   isInCall = active;
-  if (active && audioEnabled) {
-    btnCall.classList.add('in-call', 'audio-on');
-    btnCall.classList.remove('in-call');
-    btnCall.innerHTML = '🎙️';
-    pillAudio.classList.add('show');
-  } else if (active && !audioEnabled) {
-    btnCall.classList.add('in-call');
-    btnCall.classList.remove('audio-on');
-    btnCall.innerHTML = '🔇';
-    pillAudio.classList.remove('show');
-  } else {
-    btnCall.classList.remove('in-call', 'audio-on');
-    btnCall.innerHTML = '🔇';
-    pillAudio.classList.remove('show');
-  }
+  pillAudio.classList.toggle('show', active && audioEnabled);
 }
 
 function updateAudioEnabledState(enabled) {
   audioEnabled = enabled;
-  if (enabled && isInCall) {
-    btnCall.classList.add('in-call', 'audio-on');
-    btnCall.innerHTML = '🎙️';
-    pillAudio.classList.add('show');
-  } else if (!enabled && isInCall) {
-    btnCall.classList.add('in-call');
-    btnCall.classList.remove('audio-on');
-    btnCall.innerHTML = '🔇';
-    pillAudio.classList.remove('show');
-  } else {
-    btnCall.classList.remove('in-call', 'audio-on');
-    btnCall.innerHTML = '🔇';
-    pillAudio.classList.remove('show');
-  }
+  pillAudio.classList.toggle('show', enabled && isInCall);
 }
 
 function updateHandButtonState() {
@@ -402,23 +407,6 @@ function unlockAudio() {
 
 unlockAudioBtn.addEventListener('click', (e) => { e.stopPropagation(); unlockAudio(); });
 document.addEventListener('click', () => { if (!audioUnlocked) unlockAudio(); }, { once: true });
-
-// ── Call button: tap to unlock audio ─────────────────────────────────────
-btnCall.addEventListener('click', () => {
-  if (!audioUnlocked) {
-    unlockAudio();
-  } else if (teacherAudio) {
-    if (teacherAudio.muted) {
-      teacherAudio.muted = false;
-      updateAudioEnabledState(true);
-      showToast("Audio unmuted", "rgba(52,199,89,0.2)", "#34c759");
-    } else {
-      teacherAudio.muted = true;
-      updateAudioEnabledState(false);
-      showToast("Audio muted", "rgba(255,69,58,0.2)", "#ff453a");
-    }
-  }
-});
 
 // ── Leave button ──────────────────────────────────────────────────────────
 document.getElementById('btn-leave').addEventListener('click', () => {
@@ -510,9 +498,10 @@ function showMaterial(url) {
 }
 
 socket.on("draw-begin", ({ x, y, color, width }) => {
-  const px = x * canvas.width;
-  const py = y * canvas.height;
-  const pw = width * canvas.width;
+  const point = materialPointToCanvas(x, y, width);
+  const px = point.x;
+  const py = point.y;
+  const pw = point.width;
   ctx.beginPath();
   ctx.arc(px, py, pw / 2, 0, Math.PI * 2);
   ctx.fillStyle = color;
@@ -526,9 +515,10 @@ socket.on("draw-begin", ({ x, y, color, width }) => {
 });
 
 socket.on("draw", ({ x, y, color, width }) => {
-  const px = x * canvas.width;
-  const py = y * canvas.height;
-  const pw = (width * canvas.width) || lastReceivedWidth;
+  const point = materialPointToCanvas(x, y, width);
+  const px = point.x;
+  const py = point.y;
+  const pw = point.width || lastReceivedWidth;
   const useColor = color || lastReceivedColor;
   ctx.beginPath();
   ctx.moveTo(currentDrawX, currentDrawY);
