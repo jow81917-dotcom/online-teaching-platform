@@ -614,11 +614,48 @@ function approveNextStudent() {
   if (pendingQueue.length === 0) return;
   
   const nextStudent = pendingQueue.shift();
-  socket.emit("approve-speaker", { roomId, studentId: nextStudent.studentId });
+  approveStudentMic(nextStudent.studentId, nextStudent.studentName);
   showToast(`✅ Approved ${nextStudent.studentName} to speak`, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
   
   updatePendingPopup();
+  updateStudentList();
   updateHandButtonState();
+}
+
+function approveStudentMic(studentId, studentName) {
+  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
+  const student = students.get(studentId);
+  if (student) {
+    student.handRaised = false;
+    student.approved = true;
+  }
+  socket.emit("approve-speaker", { roomId, studentId });
+  showToast("Requesting mic permission from " + (studentName || student?.name || "student"), "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
+  updatePendingPopup();
+  updateStudentList();
+  updateHandButtonState();
+}
+
+function toggleMiddleMicButton() {
+  if (currentSpeaker !== "teacher") {
+    revokeSpeaker();
+    return;
+  }
+
+  if (pendingQueue.length > 0) {
+    approveNextStudent();
+    return;
+  }
+
+  const firstStudent = Array.from(students.entries())[0];
+  if (!firstStudent) {
+    socket.emit("teacher-broadcasting");
+    showToast("No students connected", "#ffcc00");
+    return;
+  }
+
+  const [studentId, student] = firstStudent;
+  approveStudentMic(studentId, student.name);
 }
 
 function revokeSpeaker() {
@@ -725,14 +762,37 @@ socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
   if (isTeacher) {
     currentSpeaker = "teacher";
     closeAllInboundPeers();
+    students.forEach(info => { info.approved = false; });
   } else {
     currentSpeaker = speakerId;
+    const student = students.get(speakerId);
+    if (student) {
+      student.approved = true;
+      student.handRaised = false;
+    }
+    pendingQueue = pendingQueue.filter(s => s.studentId !== speakerId);
   }
+  updatePendingPopup();
   updateStudentList();
   updateHandButtonState();
   if (!isTeacher) {
     showToast(`🎤 ${speakerName} is now speaking`, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
   }
+});
+
+socket.on("student-mic-failed", ({ studentId, studentName, reason }) => {
+  const student = students.get(studentId);
+  if (student) {
+    student.approved = false;
+    student.handRaised = false;
+  }
+  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
+  currentSpeaker = "teacher";
+  closeInboundPeer(studentId);
+  updatePendingPopup();
+  updateStudentList();
+  updateHandButtonState();
+  showToast((studentName || "Student") + " could not open mic" + (reason ? ": " + reason : ""), "#ff6b6b", "rgba(255,69,58,0.12)", "rgba(255,69,58,0.35)");
 });
 
 socket.on("webrtc-offer-student", async ({ fromId, sdp }) => {
@@ -808,23 +868,7 @@ btnPen.addEventListener('click', () => {
 });
 
 btnHand.addEventListener('click', () => {
-  if (currentSpeaker !== "teacher") {
-    revokeSpeaker();
-  } else if (pendingQueue.length > 0) {
-    approveNextStudent();
-  } else {
-    // Refresh student list then grant mic to first connected student
-    socket.emit("teacher-broadcasting");
-    setTimeout(() => {
-      if (students.size > 0) {
-        const [sid, sinfo] = Array.from(students.entries())[0];
-        socket.emit("approve-speaker", { roomId, studentId: sid });
-        showToast("Granted mic to " + sinfo.name, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
-      } else {
-        showToast("No students connected", "#ffcc00");
-      }
-    }, 600);
-  }
+  toggleMiddleMicButton();
 });
 
 btnCall.addEventListener('click', () => {

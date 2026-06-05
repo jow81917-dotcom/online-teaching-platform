@@ -163,6 +163,7 @@ let canSpeak      = false;
 let audioEnabled  = false;
 let isInCall      = false;
 let audioUnlocked = false;
+let micRequestInProgress = false;
 
 // ── Socket ────────────────────────────────────────────────────────────────
 socket.on("connect", () => {
@@ -305,14 +306,18 @@ function closeInboundPeer() {
 
 // ── Outbound peer: send mic to teacher when approved ──────────────────────
 async function createOutboundPeer(toTeacherId) {
+  if (micRequestInProgress) return false;
   closeOutboundPeer();
+  micRequestInProgress = true;
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 }
     });
   } catch (e) {
+    micRequestInProgress = false;
+    socket.emit("student-mic-failed", { roomId, reason: e?.name || "permission denied" });
     showToast("Microphone access denied", "rgba(229,32,46,0.2)", "#ff453a");
-    return;
+    return false;
   }
 
   const pc = new RTCPeerConnection(ICE_CONFIG);
@@ -337,12 +342,19 @@ async function createOutboundPeer(toTeacherId) {
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit("webrtc-offer-student", { targetId: toTeacherId, sdp: pc.localDescription });
+    micRequestInProgress = false;
+    return true;
   } catch (e) {
+    micRequestInProgress = false;
+    socket.emit("student-mic-failed", { roomId, reason: e?.name || "offer failed" });
+    closeOutboundPeer();
     console.error("[outbound] createOffer:", e);
+    return false;
   }
 }
 
 function closeOutboundPeer() {
+  micRequestInProgress = false;
   if (localStream)  { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   if (outboundPeer) { outboundPeer.pc.close(); outboundPeer = null; }
   pillSpeaking.classList.remove('show');
@@ -442,16 +454,18 @@ btnHand.addEventListener('click', () => {
 });
 
 // ── Socket Events for Hand/Speaker ────────────────────────────────────────
-socket.on("speak-approved", ({ teacherSocketId }) => {
-  canSpeak = true;
+socket.on("speak-approved", async ({ teacherSocketId }) => {
   handRaised = false;
   teacherId = teacherSocketId;
   btnHand.classList.remove("raised");
-  btnHand.classList.add("speaking");
-  btnHand.innerHTML = "🎙️";
-  pillSpeaking.classList.add("show");
-  createOutboundPeer(teacherSocketId);
-  showToast("🎙️ Your mic is now open!", "rgba(22,194,74,0.2)", "#16c24a");
+  showToast("Teacher requested your mic. Allow browser permission to speak.", "rgba(22,194,74,0.2)", "#16c24a");
+  const started = await createOutboundPeer(teacherSocketId);
+  canSpeak = started;
+  updateHandButtonState();
+  if (started) {
+    pillSpeaking.classList.add("show");
+    showToast("🎙️ Your mic is now open!", "rgba(22,194,74,0.2)", "#16c24a");
+  }
 });
 
 socket.on("speak-revoked", () => {

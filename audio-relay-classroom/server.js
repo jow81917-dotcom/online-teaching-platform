@@ -249,6 +249,15 @@ io.on("connection", (socket) => {
     const student = room.students.get(studentId);
     if (!student) return;
 
+    if (room.activeSpeaker !== "teacher" && room.activeSpeaker !== studentId) {
+      const prevStudent = room.students.get(room.activeSpeaker);
+      if (prevStudent) prevStudent.approved = false;
+      io.to(room.activeSpeaker).emit("speak-revoked");
+    }
+
+    room.students.forEach((info, id) => {
+      if (id !== studentId) info.approved = false;
+    });
     student.approved = true;
     student.handRaised = false;
     room.activeSpeaker = studentId;
@@ -261,6 +270,29 @@ io.on("connection", (socket) => {
 
     io.to(studentId).emit("speak-approved", { teacherSocketId: socket.id });
     console.log(`[approve] ${student.name} approved in ${roomId}`);
+  });
+
+  socket.on("student-mic-failed", ({ roomId, reason }) => {
+    const room = getRoom(roomId);
+    if (!room || socket.role !== "student") return;
+    const student = room.students.get(socket.id);
+    if (!student) return;
+
+    student.approved = false;
+    student.handRaised = false;
+    if (room.activeSpeaker === socket.id) {
+      room.activeSpeaker = "teacher";
+      io.to(roomId).emit("speaker-changed", { speakerId: "teacher", speakerName: "Teacher", isTeacher: true });
+    }
+
+    if (room.teacherSocketId) {
+      io.to(room.teacherSocketId).emit("student-mic-failed", {
+        studentId: socket.id,
+        studentName: student.name,
+        reason
+      });
+    }
+    console.log(`[mic-failed] ${student.name} in ${roomId}: ${reason || "unknown"}`);
   });
 
   socket.on("reject-hand", ({ roomId, studentId }) => {
