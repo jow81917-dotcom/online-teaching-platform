@@ -703,8 +703,9 @@ socket.on("session-ended", () => {
   console.log("[teacher] session ended by schedule");
   stopBroadcasting();
   showToast("⏰ Session time is up", "#ffcc00", "rgba(255,204,0,0.15)", "rgba(255,204,0,0.4)");
-  setTimeout(() => { window.location.href = '/dashboard'; }, 3000);
+  setTimeout(() => { window.location.href = 'https://darutehsinquran.center/dashboard?room=' + roomId; }, 3000);
 });
+
 
 socket.on("teacher-joined", () => {
   console.log("[teacher] joined room:", roomId);

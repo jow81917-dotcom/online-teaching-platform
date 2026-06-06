@@ -44,6 +44,70 @@ app.get("/api/room-info/:roomId", (req, res) => {
 // Rooms store their scheduled_end so the server can auto-terminate them
 const roomSchedule = new Map(); // roomId → { scheduledEnd: Date, timer: TimeoutId }
 
+function endRoomBySchedule(roomId) {
+  console.log(`[schedule] session ended for room ${roomId}`);
+
+  const room = rooms.get(roomId);
+
+  // 1. ALWAYS broadcast FIRST (so clients receive event before disconnects)
+  io.to(roomId).emit("session-ended", {
+    roomId,
+    reason: "scheduled_end"
+  });
+
+  // 2. Add small delay to ensure packets reach clients BEFORE disconnect
+  setTimeout(() => {
+
+    // ─────────────────────────────────────────────
+    // 3. FORCE DISCONNECT teacher (not just leave)
+    // ─────────────────────────────────────────────
+    if (room?.teacherSocketId) {
+      const teacherSocket = io.sockets.sockets.get(room.teacherSocketId);
+
+      if (teacherSocket) {
+        teacherSocket.leave(roomId);        // remove from room
+        teacherSocket.disconnect(true);     // FORCE disconnect (IMPORTANT FIX)
+      }
+    }
+
+    // ─────────────────────────────────────────────
+    // 4. FORCE DISCONNECT all students
+    // ─────────────────────────────────────────────
+    if (room) {
+      room.students.forEach((info, studentSocketId) => {
+        const studentSocket = io.sockets.sockets.get(studentSocketId);
+
+        if (studentSocket) {
+          studentSocket.leave(roomId);        // remove from room
+          studentSocket.disconnect(true);     // FORCE disconnect (IMPORTANT FIX)
+        }
+      });
+    }
+
+    // ─────────────────────────────────────────────
+    // 5. Cleanup uploaded material
+    // ─────────────────────────────────────────────
+    if (room?.material?.filename) {
+      deleteUpload(room.material.filename);
+    }
+
+    // ─────────────────────────────────────────────
+    // 6. Delete room state
+    // ─────────────────────────────────────────────
+    rooms.delete(roomId);
+
+    // ─────────────────────────────────────────────
+    // 7. Cleanup schedule timer safely
+    // ─────────────────────────────────────────────
+    const existing = roomSchedule.get(roomId);
+    if (existing?.timer) clearTimeout(existing.timer);
+    roomSchedule.delete(roomId);
+
+    console.log(`[schedule] room ${roomId} fully terminated and cleaned up`);
+
+  }, 500); // ⬅️ CRITICAL: gives clients time to receive event
+}
+
 app.post("/api/room-schedule", (req, res) => {
   const { roomId, scheduledEnd } = req.body;
   if (!roomId || !scheduledEnd) return res.status(400).json({ error: 'roomId and scheduledEnd required' });
@@ -55,15 +119,13 @@ app.post("/api/room-schedule", (req, res) => {
   const endTime = new Date(scheduledEnd);
   const msUntilEnd = endTime - Date.now();
 
-  if (msUntilEnd <= 0) return res.json({ ok: true, message: 'already ended' });
+  if (msUntilEnd <= 0) {
+    endRoomBySchedule(roomId);
+    return res.json({ ok: true, message: 'ended' });
+  }
 
   const timer = setTimeout(() => {
-    console.log(`[schedule] session ended for room ${roomId}`);
-    io.to(roomId).emit('session-ended', { roomId, reason: 'scheduled_end' });
-    // Delete uploaded image when session ends by schedule
-    const room = rooms.get(roomId);
-    if (room?.material?.filename) deleteUpload(room.material.filename);
-    roomSchedule.delete(roomId);
+    endRoomBySchedule(roomId);
   }, msUntilEnd);
 
   roomSchedule.set(roomId, { scheduledEnd: endTime, timer });

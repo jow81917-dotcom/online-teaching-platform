@@ -205,7 +205,7 @@ socket.on("session-ended", () => {
   closeOutboundPeer();
   updateCallState(false);
   showToast("⏰ Session time is up", "rgba(255,204,0,0.8)", "#ffcc00");
-  setTimeout(() => { window.location.href = '/dashboard'; }, 3000);
+  setTimeout(() => { window.location.href = 'https://darutehsinquran.center/dashboard?room=' + roomId; }, 3000);
 });
 
 // ── WebRTC signaling ──────────────────────────────────────────────────────
