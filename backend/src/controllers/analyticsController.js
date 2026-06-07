@@ -21,7 +21,7 @@ exports.adminStats = async (req, res) => {
 exports.recentActivities = async (req, res) => {
   try {
     const [rows] = await sequelize.query(
-      "SELECT CONCAT(full_name, ' logged in') as description, last_login as time FROM users WHERE last_login IS NOT NULL ORDER BY last_login DESC LIMIT 10"
+      "SELECT CONCAT(username, ' logged in') as description, last_login as time FROM users WHERE last_login IS NOT NULL ORDER BY last_login DESC LIMIT 10"
     );
     res.json(rows);
   } catch (e) { res.status(500).json({ message: e.message }); }

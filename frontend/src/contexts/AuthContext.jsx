@@ -1,6 +1,10 @@
 // frontend/src/contexts/AuthContext.jsx
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import axios from 'axios';
+
+// Set base URL to local backend during development
+axios.defaults.baseURL = import.meta.env.VITE_API_URL || '';
+
 import toast from 'react-hot-toast';
 
 const AuthContext = createContext();
@@ -33,9 +37,9 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (username, password) => {
     try {
-      const response = await axios.post('/api/auth/login', { email, password });
+      const response = await axios.post('/api/auth/login', { username, password });
       const { token: newToken, user: userData } = response.data;
       
       localStorage.setItem('token', newToken);
@@ -43,7 +47,7 @@ export const AuthProvider = ({ children }) => {
       axios.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
       setUser(userData);
       
-      toast.success(`Welcome back, ${userData.full_name}!`);
+      toast.success(`Welcome back, ${userData.username}!`);
       return { success: true };
     } catch (error) {
       toast.error(error.response?.data?.message || 'Login failed');

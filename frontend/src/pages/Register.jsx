@@ -4,7 +4,7 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 
 const Register = () => {
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'student' });
+  const [form, setForm] = useState({ username: '', password: '', role: 'student' });
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -30,12 +30,8 @@ const Register = () => {
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-gray-700 mb-2">Full Name</label>
-            <input className="input-field" required value={form.full_name} onChange={e => setForm({...form, full_name: e.target.value})} placeholder="John Doe" />
-          </div>
-          <div>
-            <label className="block text-gray-700 mb-2">Email</label>
-            <input className="input-field" type="email" required value={form.email} onChange={e => setForm({...form, email: e.target.value})} placeholder="you@school.com" />
+            <label className="block text-gray-700 mb-2">Username</label>
+            <input className="input-field" required value={form.username} onChange={e => setForm({...form, username: e.target.value})} placeholder="Username" />
           </div>
           <div>
             <label className="block text-gray-700 mb-2">Password</label>

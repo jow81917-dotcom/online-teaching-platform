@@ -205,7 +205,23 @@ socket.on("session-ended", () => {
   closeOutboundPeer();
   updateCallState(false);
   showToast("⏰ Session time is up", "rgba(255,204,0,0.8)", "#ffcc00");
-  setTimeout(() => { window.location.href = 'https://darutehsinquran.center/dashboard?room=' + roomId; }, 3000);
+  setTimeout(() => {
+    let dashboardUrl = 'https://darutehsinquran.center/dashboard';
+    if (document.referrer) {
+      try {
+        const refUrl = new URL(document.referrer);
+        if (refUrl.origin) {
+          dashboardUrl = `${refUrl.origin}/dashboard`;
+        }
+      } catch (e) {}
+    } else {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isLocal) {
+        dashboardUrl = 'http://localhost:5173/dashboard';
+      }
+    }
+    window.location.href = dashboardUrl;
+  }, 3000);
 });
 
 // ── WebRTC signaling ──────────────────────────────────────────────────────
@@ -427,7 +443,21 @@ document.getElementById('btn-leave').addEventListener('click', () => {
     closeOutboundPeer();
     sessionStorage.removeItem('classroom_room');
     sessionStorage.removeItem('classroom_name');
-    window.location.href = '/dashboard';
+    let dashboardUrl = 'https://darutehsinquran.center/dashboard';
+    if (document.referrer) {
+      try {
+        const refUrl = new URL(document.referrer);
+        if (refUrl.origin) {
+          dashboardUrl = `${refUrl.origin}/dashboard`;
+        }
+      } catch (e) {}
+    } else {
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isLocal) {
+        dashboardUrl = 'http://localhost:5173/dashboard';
+      }
+    }
+    window.location.href = dashboardUrl;
   }
 });
 

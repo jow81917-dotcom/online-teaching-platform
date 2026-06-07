@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPwd,  setShowPwd]  = useState(false);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const result = await login(email, password);
+    const result = await login(username, password);
     if (result.success) navigate('/dashboard');
     setLoading(false);
   };
@@ -29,62 +30,49 @@ const Login = () => {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-gray-700 mb-2">Email Address</label>
+            <label className="block text-gray-700 mb-2">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="input-field"
-              placeholder="admin@school.com"
+              placeholder="Username"
               required
             />
           </div>
 
           <div>
             <label className="block text-gray-700 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input-field"
-              placeholder="••••••••"
-              required
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input-field"
+                placeholder="••••••••"
+                style={{ paddingRight: '2.5rem' }}
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPwd(v => !v)}
+                style={{
+                  position: 'absolute', right: '0.75rem', top: '50%',
+                  transform: 'translateY(-50%)', background: 'none',
+                  border: 'none', cursor: 'pointer', fontSize: '1.1rem',
+                  color: '#6b7280', lineHeight: 1,
+                }}
+                tabIndex={-1}
+              >
+                {showPwd ? '🙈' : '👁️'}
+              </button>
+            </div>
           </div>
 
           <button type="submit" disabled={loading} className="btn-primary w-full">
             {loading ? 'Logging in...' : 'Login'}
           </button>
         </form>
-
-        {/* Add New User button — opens Register in a new tab */}
-        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-          <button
-            onClick={() => window.open('/register', '_blank')}
-            style={{
-              width: '100%',
-              padding: '0.5rem 1rem',
-              border: '2px solid var(--primary)',
-              borderRadius: '0.5rem',
-              background: 'transparent',
-              color: 'var(--primary)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontSize: '1rem',
-              transition: 'background 0.2s, color 0.2s'
-            }}
-            onMouseOver={e => { e.target.style.background = 'var(--primary)'; e.target.style.color = '#fff'; }}
-            onMouseOut={e => { e.target.style.background = 'transparent'; e.target.style.color = 'var(--primary)'; }}
-          >
-            + Add New User
-          </button>
-        </div>
-
-        <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--gray-50)', borderRadius: '0.5rem', fontSize: '0.85rem', color: 'var(--gray-600)' }}>
-          <strong>Default Admin Account:</strong><br />
-          Email: admin@school.com<br />
-          Password: password
-        </div>
 
       </div>
     </div>

@@ -3,6 +3,7 @@ const auth = require('../middleware/auth');
 const rbac = require('../middleware/rbac');
 const c = require('../controllers/userController');
 
+router.get('/stats', auth, rbac('admin'), c.getStats);
 router.get('/', auth, rbac('admin'), c.getAll);
 router.get('/:id', auth, c.getOne);
 router.put('/:id', auth, rbac('admin'), c.update);

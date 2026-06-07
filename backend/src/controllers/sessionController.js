@@ -7,7 +7,86 @@ const http  = require('http');
 const CLASSROOM_URL       = process.env.CLASSROOM_URL || 'http://localhost:3000';
 const JOIN_WINDOW_MINUTES = 15;
 
-// ── /api/sessions/my/live ─────────────────────────────────────────────────
+// ── GET /api/sessions/admin/stats ────────────────────────────────────────
+exports.getAdminStats = async (req, res) => {
+  try {
+    const [rows] = await sequelize.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'scheduled')                          AS scheduled,
+        COUNT(*) FILTER (WHERE status = 'active')                             AS active,
+        COUNT(*) FILTER (WHERE status = 'completed')                          AS completed,
+        COUNT(*) FILTER (WHERE status = 'cancelled')                          AS cancelled,
+        COUNT(*) FILTER (WHERE DATE(scheduled_start) = CURRENT_DATE)          AS today_total,
+        COUNT(*) FILTER (WHERE status = 'active'
+                           AND DATE(scheduled_start) = CURRENT_DATE)          AS today_active,
+        COUNT(*) FILTER (WHERE scheduled_start >= NOW()
+                           AND scheduled_start <= NOW() + INTERVAL '7 days'
+                           AND status = 'scheduled')                          AS upcoming_7d,
+        COUNT(DISTINCT teacher_id) FILTER (WHERE status = 'active')           AS teachers_teaching,
+        COUNT(DISTINCT student_id) FILTER (WHERE status = 'active')           AS students_in_class,
+        COUNT(*) FILTER (WHERE DATE(scheduled_start) = CURRENT_DATE - 1)      AS yesterday_total
+      FROM sessions
+    `);
+    res.json(rows[0]);
+  } catch (e) {
+    console.error('[getAdminStats]', e.message);
+    res.status(500).json({ message: e.message }); }
+};
+
+// ── GET /api/sessions/admin/calendar ─────────────────────────────────────
+exports.getAdminCalendar = async (req, res) => {
+  const { year, month } = req.query; // month = 1-12
+  const y = parseInt(year)  || new Date().getFullYear();
+  const m = parseInt(month) || new Date().getMonth() + 1;
+  const from  = `${y}-${String(m).padStart(2,'0')}-01`;
+  const until = `${m === 12 ? y+1 : y}-${String(m === 12 ? 1 : m+1).padStart(2,'0')}-01`;
+  try {
+    const [rows] = await sequelize.query(`
+      SELECT
+        DATE(scheduled_start)                                         AS day,
+        COUNT(*)                                                      AS total,
+        COUNT(*) FILTER (WHERE status = 'active')                    AS active,
+        COUNT(*) FILTER (WHERE status = 'cancelled')                 AS cancelled,
+        COUNT(*) FILTER (WHERE status = 'scheduled')                 AS scheduled,
+        COUNT(*) FILTER (WHERE status = 'completed')                 AS completed,
+        COUNT(*) FILTER (WHERE status IN ('scheduled','active')
+                           AND scheduled_start
+                             < $2::date AND scheduled_end > $1::date) AS conflicts
+      FROM sessions
+      WHERE scheduled_start >= $1::timestamp
+        AND scheduled_start <  $2::timestamp
+      GROUP BY DATE(scheduled_start)
+      ORDER BY day
+    `, { bind: [from, until] });
+    res.json(rows);
+  } catch (e) {
+    console.error('[getAdminCalendar]', e.message);
+    res.status(500).json({ message: e.message }); }
+};
+
+// ── GET /api/sessions/admin/day/:date ─────────────────────────────────────
+exports.getAdminDaySessions = async (req, res) => {
+  const { date } = req.params;
+  try {
+    const [rows] = await sequelize.query(`
+      SELECT
+        s.*,
+        ut.username AS teacher_name,
+        us.username AS student_name
+      FROM sessions s
+      JOIN users ut ON ut.id = s.teacher_id
+      JOIN users us ON us.id = s.student_id
+      WHERE DATE(s.scheduled_start AT TIME ZONE 'UTC') = $1::date
+      ORDER BY s.scheduled_start ASC
+    `, { bind: [date] });
+    res.json(rows);
+  } catch (e) {
+    console.error('[getAdminDaySessions]', e.message);
+    res.status(500).json({ message: e.message });
+  }
+};
+
+
 exports.getLiveSession = async (req, res) => {
   const { role, id } = req.user;
   try {
@@ -96,13 +175,13 @@ exports.getClassroomJoin = async (req, res) => {
     // Admin joins as silent observer (student page) so they can hear the teacher
     const page = role === 'teacher' ? 'teacher.html' : 'student.html';
 
-    // Fetch full_name from DB since JWT doesn't include it
+    // Fetch username from DB since JWT doesn't include it
     const [userRows] = await sequelize.query(
-      'SELECT full_name FROM users WHERE id = $1',
+      'SELECT username FROM users WHERE id = $1',
       { bind: [id] }
     );
-    const fullName = userRows[0]?.full_name || role;
-    const name = encodeURIComponent(fullName);
+    const username = userRows[0]?.username || role;
+    const name = encodeURIComponent(username);
     const url  = `${CLASSROOM_URL}/${page}?room=${encodeURIComponent(room)}&name=${name}`;
 
     // Register end time with audio-relay server for auto-termination

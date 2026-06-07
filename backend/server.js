@@ -53,6 +53,7 @@ const notificationRoutes = require('./src/routes/notifications');
 const analyticsRoutes    = require('./src/routes/analytics');
 const reportRoutes       = require('./src/routes/reports');
 const videoRoutes        = require('./src/routes/videos');
+const scheduleRoutes     = require('./src/routes/schedules');
 
 // Use routes
 app.use('/api/auth',          authRoutes);
@@ -64,6 +65,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics',     analyticsRoutes);
 app.use('/api/reports',       reportRoutes);
 app.use('/api/videos',        videoRoutes);
+app.use('/api/schedules',     scheduleRoutes);
 
 // Socket.IO handlers
 const signalingHandler    = require('./src/sockets/signalingHandler');

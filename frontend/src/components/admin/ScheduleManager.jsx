@@ -1,344 +1,339 @@
+// frontend/src/components/admin/ScheduleManager.jsx
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import SessionViewer from './SessionViewer';
 
-const CLASSROOM_URL = import.meta.env.VITE_CLASSROOM_URL || 'https://online-teaching-platform-1-j4f0.onrender.com';
-const EMPTY = { title: '', subject: '', teacher_id: '', student_id: '', scheduled_start: '', scheduled_end: '', description: '' };
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-// Convert datetime-local string to UTC ISO — only if browser local time differs from UTC
-// Since Neon stores TIMESTAMP (no timezone), we send the local time string directly
-// so what the admin sees in the form is exactly what gets stored and compared with NOW() AT TIME ZONE 'UTC'
-const toUTC = (localStr) => localStr || '';
-
-// Format a UTC date string back to datetime-local input value (local time)
-const toLocalInput = (d) => {
-  const p = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+const EMPTY_FORM = {
+  teacher_id : '',
+  student_id : '',
+  start_time : '10:00',
+  end_time   : '11:00',
+  date_from  : '',
+  date_until : '',
+  days       : [],   // array of numbers 0-6
 };
 
-const statusColor = {
-  scheduled: 'var(--primary)',
-  active:    'var(--green-500)',
-  completed: 'var(--gray-500)',
-  cancelled: 'var(--red-500)',
-  replaced:  'var(--yellow-500)'
+// ── tiny reusable styled components ──────────────────────────────────────────
+const inp = {
+  width: '100%', padding: '0.5rem 0.75rem',
+  border: '1px solid #d1d5db', borderRadius: '0.4rem',
+  fontSize: '0.875rem', boxSizing: 'border-box',
 };
+const lbl = { display: 'block', marginBottom: '0.3rem', fontWeight: 600, fontSize: '0.8rem', color: '#374151' };
 
+
+// ── Main Component ────────────────────────────────────────────────────────────
 const ScheduleManager = () => {
-  const [sessions,  setSessions]  = useState([]);
-  const [teachers,  setTeachers]  = useState([]);
-  const [students,  setStudents]  = useState([]);
-  const [form,      setForm]      = useState(EMPTY);
-  const [editId,    setEditId]    = useState(null);   // null = create, string = edit
-  const [showForm,  setShowForm]  = useState(false);
-  const [filter,    setFilter]    = useState('all');
-  const [formError, setFormError] = useState('');
-  const [saving,    setSaving]    = useState(false);
-  const [joining,   setJoining]   = useState(null);
+  const [view,       setView]       = useState('schedules'); // 'schedules' | 'sessions'
+  const [schedules,  setSchedules]  = useState([]);
+  const [teachers,   setTeachers]   = useState([]);
+  const [students,   setStudents]   = useState([]);
+  const [form,       setForm]       = useState(EMPTY_FORM);
+  const [showForm,   setShowForm]   = useState(false);
+  const [formErr,    setFormErr]    = useState('');
+  const [saving,     setSaving]     = useState(false);
+  const [result,     setResult]     = useState(null); // last create result
 
-  const supervise = async (s) => {
-    setJoining(s.id);
+  // ── loaders ─────────────────────────────────────────────────────────────────
+  const loadSchedules = useCallback(async () => {
     try {
-      const { data } = await axios.get(`/api/sessions/classroom/join/${s.id}`);
-      window.open(data.url, '_blank');
-    } catch {
-      window.open(`${CLASSROOM_URL}/student.html?room=${encodeURIComponent(s.room_name || s.id)}&name=Admin`, '_blank');
-    } finally {
-      setJoining(null);
-    }
-  };
-
-  const isSuperviseble = (s) => {
-    if (s.status === 'cancelled' || s.status === 'completed') return false;
-    if (s.status === 'active') return true;
-    const now = new Date();
-    return s.status === 'scheduled'
-      && new Date(s.scheduled_start) <= now
-      && new Date(s.scheduled_end) > now;
-  };
-
-  const load = useCallback(async () => {
-    try {
-      const [s, u] = await Promise.all([axios.get('/api/sessions'), axios.get('/api/users')]);
-      setSessions(s.data);
-      setTeachers(u.data.filter(u => u.role === 'teacher'));
-      setStudents(u.data.filter(u => u.role === 'student'));
-    } catch { toast.error('Failed to load data'); }
+      const { data } = await axios.get('/api/schedules');
+      setSchedules(data);
+    } catch { toast.error('Failed to load schedules'); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  const loadUsers = useCallback(async () => {
+    try {
+      const { data } = await axios.get('/api/users');
+      setTeachers(data.filter(u => u.role === 'teacher'));
+      setStudents(data.filter(u => u.role === 'student'));
+    } catch {}
+  }, []);
 
-  // Auto-refresh every 30s so status changes from cron are reflected
   useEffect(() => {
-    const t = setInterval(load, 30000);
+    loadSchedules();
+    loadUsers();
+  }, [loadSchedules, loadUsers]);
+
+  useEffect(() => {
+    const t = setInterval(() => { loadSchedules(); }, 30000);
     return () => clearInterval(t);
-  }, [load]);
+  }, [loadSchedules]);
 
-  const openCreate = () => {
-    setForm(EMPTY);
-    setEditId(null);
-    setFormError('');
-    setShowForm(true);
+  // ── form helpers ─────────────────────────────────────────────────────────────
+  const toggleDay = (d) => {
+    setForm(f => ({
+      ...f,
+      days: f.days.includes(d) ? f.days.filter(x => x !== d) : [...f.days, d]
+    }));
   };
 
-  const openEdit = (s) => {
-    setForm({
-      title:           s.title,
-      subject:         s.subject || '',
-      teacher_id:      s.teacher_id,
-      student_id:      s.student_id,
-      scheduled_start: toLocalInput(new Date(s.scheduled_start)),
-      scheduled_end:   toLocalInput(new Date(s.scheduled_end)),
-      description:     s.description || ''
-    });
-    setEditId(s.id);
-    setFormError('');
-    setShowForm(true);
-  };
-
-  const closeForm = () => { setShowForm(false); setEditId(null); setFormError(''); };
-
-  // Client-side validation before hitting the server
   const validate = () => {
-    if (!form.title.trim())       return 'Title is required';
-    if (!form.teacher_id)         return 'Select a teacher';
-    if (!form.student_id)         return 'Select a student';
-    if (!form.scheduled_start)    return 'Start time is required';
-    if (!form.scheduled_end)      return 'End time is required';
-    const start = new Date(form.scheduled_start);
-    const end   = new Date(form.scheduled_end);
-    if (isNaN(start) || isNaN(end)) return 'Invalid date';
-    if (!editId && start < new Date()) return 'Cannot schedule in the past';
-    if (start >= end)             return 'End time must be after start time';
-    if ((end - start) < 15 * 60 * 1000) return 'Session must be at least 15 minutes';
+    if (!form.teacher_id)           return 'Select a teacher';
+    if (!form.student_id)           return 'Select a student';
+    if (!form.start_time)           return 'Start time is required';
+    if (!form.end_time)             return 'End time is required';
+    if (form.start_time >= form.end_time) return 'End time must be after start time';
+    if (!form.date_from)            return 'From date is required';
+    if (!form.date_until)           return 'Until date is required';
+    if (form.date_from > form.date_until) return 'Date "until" must be after "from"';
+    if (!form.days.length)          return 'Select at least one day of the week';
     return null;
   };
 
-  const handleSubmit = async (e) => {
+  const handleCreate = async (e) => {
     e.preventDefault();
     const err = validate();
-    if (err) { setFormError(err); return; }
-    setFormError('');
+    if (err) { setFormErr(err); return; }
+    setFormErr('');
     setSaving(true);
+    setResult(null);
     try {
-      if (editId) {
-        await axios.put(`/api/sessions/${editId}`, {
-          title:           form.title,
-          subject:         form.subject,
-          scheduled_start: toUTC(form.scheduled_start),
-          scheduled_end:   toUTC(form.scheduled_end),
-          description:     form.description
-        });
-        toast.success('Session updated');
-      } else {
-        await axios.post('/api/sessions', {
-          ...form,
-          scheduled_start: toUTC(form.scheduled_start),
-          scheduled_end:   toUTC(form.scheduled_end)
-        });
-        toast.success('Session created');
-      }
-      closeForm();
-      load();
+      const { data } = await axios.post('/api/schedules', {
+        teacher_id : form.teacher_id,
+        student_id : form.student_id,
+        start_time : form.start_time + ':00',
+        end_time   : form.end_time   + ':00',
+        date_from  : form.date_from,
+        date_until : form.date_until,
+        days       : form.days,
+      });
+      setResult(data);
+      toast.success(data.message);
+      setShowForm(false);
+      setForm(EMPTY_FORM);
+      loadSchedules();
     } catch (err) {
-      const msg = err.response?.data?.message || 'Error saving session';
-      setFormError(msg);
+      setFormErr(err.response?.data?.message || 'Error creating schedule');
     } finally {
       setSaving(false);
     }
   };
 
-  const cancel = async (id) => {
-    if (!window.confirm('Cancel this session?')) return;
+  const deleteSchedule = async (id) => {
+    if (!window.confirm('Deactivate this schedule and cancel its future sessions?')) return;
     try {
-      await axios.put(`/api/sessions/${id}`, { status: 'cancelled' });
-      toast.success('Session cancelled');
-      load();
+      await axios.delete(`/api/schedules/${id}`);
+      toast.success('Schedule deactivated');
+      loadSchedules();
     } catch { toast.error('Error'); }
   };
 
-  const filtered = filter === 'all' ? sessions : sessions.filter(s => s.status === filter);
-
-  const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.82rem', whiteSpace: 'nowrap' };
-  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.85rem', verticalAlign: 'middle' };
-
-  const inputStyle = { width: '100%', padding: '0.5rem 0.75rem', border: '1px solid var(--gray-300)', borderRadius: '0.375rem', fontSize: '0.9rem' };
-  const labelStyle = { display: 'block', marginBottom: '0.35rem', fontWeight: 600, fontSize: '0.85rem', color: 'var(--gray-700)' };
-
+  // ── render ───────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Filter + New button */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          {['all', 'scheduled', 'active', 'completed', 'cancelled'].map(s => (
-            <button key={s} onClick={() => setFilter(s)}
-              style={{ padding: '4px 12px', borderRadius: '9999px', border: '1px solid var(--gray-300)', cursor: 'pointer', fontSize: '0.82rem',
-                background: filter === s ? 'var(--primary)' : '#fff', color: filter === s ? '#fff' : 'var(--gray-700)', textTransform: 'capitalize' }}>
-              {s}
-            </button>
-          ))}
-        </div>
-        <button className="btn-primary" onClick={openCreate}>+ New Session</button>
+      {/* ── Tab bar ── */}
+      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem' }}>
+        {['schedules', 'sessions'].map(tab => (
+          <button key={tab} onClick={() => setView(tab)}
+            style={{
+              padding: '6px 20px', borderRadius: '9999px', cursor: 'pointer',
+              border: '1px solid #d1d5db', fontWeight: 600, fontSize: '0.85rem',
+              background: view === tab ? '#1d4ed8' : '#fff',
+              color: view === tab ? '#fff' : '#374151',
+              textTransform: 'capitalize'
+            }}>
+            {tab === 'schedules' ? `📅 Schedules (${schedules.length})` : `📋 Sessions`}
+          </button>
+        ))}
       </div>
 
-      {/* Create / Edit form */}
-      {showForm && (
-        <div className="card p-6 mb-6">
-          <h3 className="text-xl font-semibold mb-4">{editId ? 'Edit Session' : 'Create Session'}</h3>
+      {/* ════════════════════════════════════════════
+          SCHEDULES VIEW
+      ════════════════════════════════════════════ */}
+      {view === 'schedules' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Recurring Schedules</h2>
+            <button onClick={() => { setShowForm(true); setFormErr(''); setResult(null); }}
+              style={{ padding: '7px 18px', background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}>
+              + New Schedule
+            </button>
+          </div>
 
-          {formError && (
-            <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '0.5rem', padding: '0.75rem 1rem', marginBottom: '1rem', color: '#b91c1c', fontSize: '0.88rem' }}>
-              ⚠️ {formError}
+          {/* Result banner after create */}
+          {result && (
+            <div style={{ marginBottom: '1rem', padding: '1rem', borderRadius: '8px',
+              background: result.conflicts_found > 0 ? '#fffbeb' : '#f0fdf4',
+              border: `1px solid ${result.conflicts_found > 0 ? '#fcd34d' : '#86efac'}` }}>
+              <p style={{ fontWeight: 700, marginBottom: '0.4rem' }}>✅ {result.message}</p>
+              {result.conflicts?.length > 0 && (
+                <details>
+                  <summary style={{ cursor: 'pointer', color: '#b45309', fontSize: '0.85rem' }}>
+                    ⚠️ {result.conflicts_found} conflict(s) — click to see dates
+                  </summary>
+                  <ul style={{ marginTop: '0.5rem', paddingLeft: '1.2rem', fontSize: '0.82rem' }}>
+                    {result.conflicts.map((c, i) => (
+                      <li key={i}><strong>{c.date}</strong> — {c.reason}</li>
+                    ))}
+                  </ul>
+                </details>
+              )}
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <div>
-                <label style={labelStyle}>Title *</label>
-                <input style={inputStyle} required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} />
-              </div>
-              <div>
-                <label style={labelStyle}>Subject</label>
-                <input style={inputStyle} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} />
+          {/* ── Create Form ── */}
+          {showForm && (
+            <div className="card p-6 mb-6">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ fontWeight: 700, fontSize: '1rem' }}>Create New Schedule</h3>
+                <button onClick={() => setShowForm(false)}
+                  style={{ background: 'none', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
               </div>
 
-              <div>
-                <label style={labelStyle}>Teacher *</label>
-                <select style={inputStyle} required value={form.teacher_id}
-                  onChange={e => setForm({ ...form, teacher_id: e.target.value })}
-                  disabled={!!editId}>
-                  <option value="">Select teacher</option>
-                  {teachers.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Student *</label>
-                <select style={inputStyle} required value={form.student_id}
-                  onChange={e => setForm({ ...form, student_id: e.target.value })}
-                  disabled={!!editId}>
-                  <option value="">Select student</option>
-                  {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                </select>
-              </div>
+              {formErr && (
+                <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: '6px',
+                  padding: '0.65rem 1rem', marginBottom: '1rem', color: '#b91c1c', fontSize: '0.85rem' }}>
+                  ⚠️ {formErr}
+                </div>
+              )}
 
-              <div>
-                <label style={labelStyle}>Start *</label>
-                <input style={inputStyle} type="datetime-local" required value={form.scheduled_start}
-                  min={editId ? undefined : toLocalInput(new Date())}
-                  onChange={e => {
-                    const newStart = e.target.value;
-                    // Auto-set end to start + 1 hour if end is empty or before new start
-                    let newEnd = form.scheduled_end;
-                    if (!newEnd || new Date(newEnd) <= new Date(newStart)) {
-                      const d = new Date(newStart);
-                      d.setHours(d.getHours() + 1);
-                      newEnd = toLocalInput(d);
-                    }
-                    setForm({ ...form, scheduled_start: newStart, scheduled_end: newEnd });
-                  }} />
-              </div>
-              <div>
-                <label style={labelStyle}>End *</label>
-                <input style={inputStyle} type="datetime-local" required value={form.scheduled_end}
-                  min={form.scheduled_start || toLocalInput(new Date())}
-                  onChange={e => setForm({ ...form, scheduled_end: e.target.value })} />
-              </div>
+              <form onSubmit={handleCreate}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
 
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>Description</label>
-                <textarea style={{ ...inputStyle, resize: 'vertical', minHeight: '60px' }}
-                  value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} />
-              </div>
+                  {/* Teacher */}
+                  <div>
+                    <label style={lbl}>Teacher *</label>
+                    <select style={inp} required value={form.teacher_id}
+                      onChange={e => setForm({ ...form, teacher_id: e.target.value })}>
+                      <option value="">Select teacher</option>
+                      {teachers.map(t => <option key={t.id} value={t.id}>{t.username}</option>)}
+                    </select>
+                  </div>
+                  {/* Student */}
+                  <div>
+                    <label style={lbl}>Student *</label>
+                    <select style={inp} required value={form.student_id}
+                      onChange={e => setForm({ ...form, student_id: e.target.value })}>
+                      <option value="">Select student</option>
+                      {students.map(s => <option key={s.id} value={s.id}>{s.username}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Times */}
+                  <div>
+                    <label style={lbl}>Class Start Time *</label>
+                    <input style={inp} type="time" required value={form.start_time}
+                      onChange={e => setForm({ ...form, start_time: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Class End Time *</label>
+                    <input style={inp} type="time" required value={form.end_time}
+                      onChange={e => setForm({ ...form, end_time: e.target.value })} />
+                  </div>
+
+                  {/* Date range */}
+                  <div>
+                    <label style={lbl}>Date From *</label>
+                    <input style={inp} type="date" required value={form.date_from}
+                      onChange={e => setForm({ ...form, date_from: e.target.value })} />
+                  </div>
+                  <div>
+                    <label style={lbl}>Date Until *</label>
+                    <input style={inp} type="date" required value={form.date_until}
+                      onChange={e => setForm({ ...form, date_until: e.target.value })} />
+                  </div>
+
+                  {/* Days of week */}
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={lbl}>Repeat on Days *</label>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {DAY_LABELS.map((label, i) => (
+                        <button key={i} type="button" onClick={() => toggleDay(i)}
+                          style={{
+                            padding: '5px 14px', borderRadius: '9999px', cursor: 'pointer',
+                            border: '1px solid #d1d5db', fontSize: '0.82rem', fontWeight: 600,
+                            background: form.days.includes(i) ? '#1d4ed8' : '#fff',
+                            color: form.days.includes(i) ? '#fff' : '#374151',
+                            transition: 'all 0.15s'
+                          }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    {form.days.length > 0 && (
+                      <p style={{ marginTop: '0.4rem', fontSize: '0.78rem', color: '#6b7280' }}>
+                        Selected: {form.days.sort().map(d => DAY_LABELS[d]).join(', ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem' }}>
+                  <button type="submit" disabled={saving}
+                    style={{ padding: '8px 22px', background: '#1d4ed8', color: '#fff', border: 'none',
+                      borderRadius: '6px', cursor: saving ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.9rem' }}>
+                    {saving ? 'Generating sessions…' : '✓ Create Schedule & Generate Sessions'}
+                  </button>
+                  <button type="button" onClick={() => setShowForm(false)}
+                    style={{ padding: '8px 16px', border: '1px solid #d1d5db', borderRadius: '6px', cursor: 'pointer', background: '#fff' }}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
             </div>
+          )}
 
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button type="submit" className="btn-primary" disabled={saving}>
-                {saving ? 'Saving...' : editId ? 'Update Session' : 'Create Session'}
-              </button>
-              <button type="button" onClick={closeForm}
-                style={{ padding: '0.5rem 1rem', border: '1px solid var(--gray-300)', borderRadius: '0.5rem', cursor: 'pointer', background: '#fff' }}>
-                Cancel
-              </button>
+          {/* ── Schedules List ── */}
+          {schedules.length === 0 ? (
+            <div className="card p-6" style={{ textAlign: 'center', color: '#9ca3af' }}>
+              <p style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📅</p>
+              <p>No schedules yet. Click "+ New Schedule" to create one.</p>
             </div>
-          </form>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              {schedules.map(sched => (
+                <div key={sched.id} className="card p-5">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    <div>
+                      <h3 style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.25rem' }}>
+                        {sched.title}
+                        {sched.subject && <span style={{ marginLeft: '0.5rem', fontSize: '0.78rem', color: '#6b7280', fontWeight: 400 }}>({sched.subject})</span>}
+                        {!sched.is_active && <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: '9999px' }}>Inactive</span>}
+                      </h3>
+                      <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: '0.3rem' }}>
+                        👤 Teacher: <strong>{sched.teacher_name}</strong> &nbsp;|&nbsp;
+                        🎓 Student: <strong>{sched.student_name}</strong>
+                      </p>
+                      <p style={{ fontSize: '0.82rem', color: '#374151' }}>
+                        🕐 {sched.start_time?.slice(0,5)} – {sched.end_time?.slice(0,5)} &nbsp;|&nbsp;
+                        📆 {sched.date_from} → {sched.date_until}
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.3rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+                        {(sched.days || []).sort().map(d => (
+                          <span key={d} style={{ fontSize: '0.72rem', background: '#dbeafe', color: '#1e40af', padding: '2px 8px', borderRadius: '9999px', fontWeight: 600 }}>
+                            {DAY_LABELS[d]}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.4rem' }}>
+                      <div style={{ display: 'flex', gap: '0.75rem', fontSize: '0.82rem' }}>
+                        <span style={{ color: '#16a34a', fontWeight: 600 }}>✅ {sched.sessions_count} sessions</span>
+                        {Number(sched.conflicts_count) > 0 && (
+                          <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ {sched.conflicts_count} conflicts</span>
+                        )}
+                      </div>
+                      {sched.is_active && (
+                        <button onClick={() => deleteSchedule(sched.id)}
+                          style={{ padding: '4px 12px', border: '1px solid #fca5a5', color: '#dc2626',
+                            borderRadius: '6px', cursor: 'pointer', background: '#fff', fontSize: '0.78rem' }}>
+                          🗑 Deactivate
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Sessions table */}
-      <div className="card p-6">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 className="text-xl font-semibold">Sessions ({filtered.length})</h2>
-          <button onClick={load} style={{ fontSize: '0.8rem', padding: '4px 10px', border: '1px solid var(--gray-300)', borderRadius: '6px', cursor: 'pointer', background: '#fff' }}>
-            ↻ Refresh
-          </button>
-        </div>
-
-        {filtered.length === 0 && <p className="text-gray-500 text-sm">No sessions found.</p>}
-
-        {filtered.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={th}>Title</th>
-                  <th style={th}>Subject</th>
-                  <th style={th}>Start</th>
-                  <th style={th}>End</th>
-                  <th style={th}>Room Code</th>
-                  <th style={th}>Status</th>
-                  <th style={th}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(s => (
-                  <tr key={s.id}>
-                    <td style={td}>{s.title}</td>
-                    <td style={td}>{s.subject || '—'}</td>
-                    <td style={td} style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_start).toLocaleString()}</td>
-                    <td style={td} style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_end).toLocaleString()}</td>
-                    <td style={td}>
-                      <code style={{ fontSize: '0.75rem', background: '#f1f5f9', padding: '2px 6px', borderRadius: '4px', userSelect: 'all' }}>
-                        {s.room_name || '—'}
-                      </code>
-                    </td>
-                    <td style={td}>
-                      <span style={{ color: statusColor[s.status] || 'var(--gray-500)', fontWeight: 600, textTransform: 'capitalize' }}>
-                        {s.status}
-                      </span>
-                    </td>
-                    <td style={td}>
-                      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-                        {isSuperviseble(s) && (
-                          <button
-                            onClick={() => supervise(s)}
-                            disabled={joining === s.id}
-                            style={{ padding: '2px 10px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600 }}
-                          >
-                            {joining === s.id ? '...' : '👁️ Supervise'}
-                          </button>
-                        )}
-                        {s.status === 'scheduled' && (
-                          <>
-                            <button onClick={() => openEdit(s)}
-                              style={{ padding: '2px 10px', border: '1px solid var(--primary)', color: 'var(--primary)', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontSize: '0.78rem' }}>
-                              Edit
-                            </button>
-                            <button onClick={() => cancel(s.id)}
-                              style={{ padding: '2px 10px', border: '1px solid var(--red-500)', color: 'var(--red-500)', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontSize: '0.78rem' }}>
-                              Cancel
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {view === 'sessions' && <SessionViewer />}
     </div>
   );
 };

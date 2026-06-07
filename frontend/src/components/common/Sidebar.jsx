@@ -6,7 +6,6 @@ import { useAuth } from '../../contexts/AuthContext';
 const adminLinks  = [
   { label: 'Overview',    id: 'overview'  },
   { label: 'Users',       id: 'users'     },
-  { label: 'Sessions',    id: 'sessions'  },
   { label: 'Schedule',    id: 'schedule'  },
   { label: 'Analytics',   id: 'analytics' },
   { label: 'Reports',     id: 'reports'   },

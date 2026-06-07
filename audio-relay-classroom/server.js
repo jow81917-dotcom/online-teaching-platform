@@ -105,7 +105,7 @@ function endRoomBySchedule(roomId) {
 
     console.log(`[schedule] room ${roomId} fully terminated and cleaned up`);
 
-  }, 500); // ⬅️ CRITICAL: gives clients time to receive event
+  }, 5000); // ⬅️ CRITICAL: gives clients time to receive event
 }
 
 app.post("/api/room-schedule", (req, res) => {
