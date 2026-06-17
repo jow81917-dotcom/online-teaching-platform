@@ -5,11 +5,25 @@ import UserManagement from './UserManagement';
 import ScheduleManager from './ScheduleManager';
 import AnalyticsDashboard from './AnalyticsDashboard';
 import ReportsExport from './ReportsExport';
+import RoleManagement from './RoleManagement';
+import SessionModeration from './SessionModeration';
+import { useAuth } from '../../contexts/AuthContext';
+import { ROLE_LABELS, canAccessTab, hasPermission } from '../../utils/permissions';
 
 const StatCard = ({ label, value, color }) => (
-  <div className="card p-4">
-    <p className="text-gray-500 text-sm">{label}</p>
-    <p className="text-2xl font-bold" style={{ color }}>{value}</p>
+  <div style={{
+    background: 'rgba(255, 255, 255, 0.6)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    borderRadius: '20px',
+    padding: '20px 24px',
+    border: '1px solid rgba(255, 255, 255, 0.5)',
+    boxShadow: '0 8px 32px rgba(155, 89, 182, 0.08)',
+    transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+    cursor: 'default',
+  }}>
+    <p style={{ color: '#8b8b9a', fontSize: '13px', fontWeight: 500, marginBottom: '8px', letterSpacing: '0.3px' }}>{label}</p>
+    <p style={{ fontSize: '28px', fontWeight: 700, color, margin: 0, letterSpacing: '-0.5px' }}>{value}</p>
   </div>
 );
 
@@ -23,29 +37,74 @@ const LeaveManagement = () => {
     catch { toast.error('Error'); }
   };
 
-  const statusColor = { pending: 'var(--yellow-500)', approved: 'var(--green-500)', rejected: 'var(--red-500)' };
-  const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
-  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem' };
+  const statusColor = { pending: '#f59e0b', approved: '#10b981', rejected: '#ef4444' };
 
   return (
-    <div className="card p-6">
-      <h2 className="text-xl font-semibold mb-4">Leave Requests ({requests.length})</h2>
-      {requests.length === 0 && <p className="text-gray-500 text-sm">No leave requests.</p>}
+    <div style={{
+      background: 'rgba(255, 255, 255, 0.55)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: '24px',
+      padding: '28px',
+      border: '1px solid rgba(255, 255, 255, 0.6)',
+      boxShadow: '0 8px 32px rgba(155, 89, 182, 0.06)',
+    }}>
+      <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#2d2d3a', marginBottom: '20px', letterSpacing: '-0.3px' }}>Leave Requests ({requests.length})</h2>
+      {requests.length === 0 && <p style={{ color: '#9ca3af', fontSize: '14px' }}>No leave requests.</p>}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead><tr><th style={th}>Role</th><th style={th}>Date</th><th style={th}>Time</th><th style={th}>Reason</th><th style={th}>Status</th><th style={th}>Actions</th></tr></thead>
+          <thead>
+            <tr>
+              {['Role', 'Date', 'Time', 'Reason', 'Status', 'Actions'].map(h => (
+                <th key={h} style={{
+                  padding: '14px 16px',
+                  textAlign: 'left',
+                  fontWeight: 600,
+                  color: '#6b7280',
+                  borderBottom: '2px solid rgba(233, 213, 255, 0.5)',
+                  fontSize: '13px',
+                  letterSpacing: '0.3px',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
           <tbody>
             {requests.map(r => (
-              <tr key={r.id}>
-                <td style={td}><span style={{ textTransform: 'capitalize' }}>{r.user_role}</span></td>
-                <td style={td}>{r.leave_date}</td>
-                <td style={td}>{r.start_time} – {r.end_time}</td>
-                <td style={td}>{r.reason || '—'}</td>
-                <td style={td}><span style={{ color: statusColor[r.status], fontWeight: 600, textTransform: 'capitalize' }}>{r.status}</span></td>
-                <td style={td}>
+              <tr key={r.id} style={{ transition: 'background 0.2s' }}>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563' }}>
+                  <span style={{ textTransform: 'capitalize' }}>{r.user_role}</span>
+                </td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563' }}>{r.leave_date}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563' }}>{r.start_time} – {r.end_time}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563' }}>{r.reason || '—'}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px' }}>
+                  <span style={{ color: statusColor[r.status], fontWeight: 600, textTransform: 'capitalize' }}>{r.status}</span>
+                </td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px' }}>
                   {r.status === 'pending' && <>
-                    <button onClick={() => handle(r.id, 'approved')} style={{ marginRight: '0.4rem', padding: '2px 10px', border: '1px solid var(--green-500)', color: 'var(--green-500)', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontSize: '0.8rem' }}>Approve</button>
-                    <button onClick={() => handle(r.id, 'rejected')} style={{ padding: '2px 10px', border: '1px solid var(--red-500)', color: 'var(--red-500)', borderRadius: '4px', cursor: 'pointer', background: '#fff', fontSize: '0.8rem' }}>Reject</button>
+                    <button onClick={() => handle(r.id, 'approved')} style={{
+                      marginRight: '8px',
+                      padding: '6px 14px',
+                      border: '1.5px solid #10b981',
+                      color: '#10b981',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      transition: 'all 0.2s',
+                    }}>Approve</button>
+                    <button onClick={() => handle(r.id, 'rejected')} style={{
+                      padding: '6px 14px',
+                      border: '1.5px solid #ef4444',
+                      color: '#ef4444',
+                      borderRadius: '10px',
+                      cursor: 'pointer',
+                      background: 'rgba(239, 68, 68, 0.08)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      transition: 'all 0.2s',
+                    }}>Reject</button>
                   </>}
                 </td>
               </tr>
@@ -58,6 +117,7 @@ const LeaveManagement = () => {
 };
 
 const SessionsView = () => {
+  const { user } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [filter, setFilter] = useState('all');
   const [joining, setJoining] = useState(null);
@@ -75,8 +135,8 @@ const SessionsView = () => {
       const { data } = await axios.get(`/api/sessions/classroom/join/${sessionId}`);
       window.open(data.url, '_blank');
     } catch {
-      // Admin fallback: join as silent observer using student page
-      window.open(`${CLASSROOM_URL}/student.html?room=${encodeURIComponent(roomName || sessionId)}&name=Admin`, '_blank');
+      const name = encodeURIComponent(user?.full_name || user?.username || ROLE_LABELS[user?.role] || 'Observer');
+      window.open(`${CLASSROOM_URL}/moderator.html?room=${encodeURIComponent(roomName || sessionId)}&name=${name}&role=${encodeURIComponent(user?.role || 'moderator')}`, '_blank');
     } finally {
       setJoining(null);
     }
@@ -85,7 +145,6 @@ const SessionsView = () => {
   const isSuperviseble = (s) => {
     if (s.status === 'cancelled' || s.status === 'completed') return false;
     if (s.status === 'active') return true;
-    // scheduled but start has passed and end hasn't — cron may not have flipped yet
     const now = new Date();
     return s.status === 'scheduled'
       && new Date(s.scheduled_start) <= now
@@ -93,51 +152,84 @@ const SessionsView = () => {
   };
 
   const filtered = filter === 'all' ? sessions : sessions.filter(s => s.status === filter);
-  const statusColor = { scheduled: 'var(--primary)', active: 'var(--green-500)', completed: 'var(--gray-500)', cancelled: 'var(--red-500)', replaced: 'var(--yellow-500)' };
-  const th = { padding: '0.6rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--gray-700)', borderBottom: '2px solid var(--gray-200)', fontSize: '0.85rem' };
-  const td = { padding: '0.6rem 0.75rem', borderBottom: '1px solid var(--gray-100)', fontSize: '0.88rem', verticalAlign: 'middle' };
+  const statusColor = { scheduled: '#8b5cf6', active: '#10b981', completed: '#9ca3af', cancelled: '#ef4444', replaced: '#f59e0b' };
 
   return (
-    <div className="card p-6">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-        <h2 className="text-xl font-semibold">All Sessions ({filtered.length})</h2>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+    <div style={{
+      background: 'rgba(255, 255, 255, 0.55)',
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      borderRadius: '24px',
+      padding: '28px',
+      border: '1px solid rgba(255, 255, 255, 0.6)',
+      boxShadow: '0 8px 32px rgba(155, 89, 182, 0.06)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#2d2d3a', letterSpacing: '-0.3px' }}>All Sessions ({filtered.length})</h2>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {['all','scheduled','active','completed','cancelled'].map(s => (
-            <button key={s} onClick={() => setFilter(s)} style={{ padding: '3px 10px', borderRadius: '9999px', border: '1px solid var(--gray-300)', cursor: 'pointer', fontSize: '0.8rem', background: filter === s ? 'var(--primary)' : '#fff', color: filter === s ? '#fff' : 'var(--gray-700)', textTransform: 'capitalize' }}>{s}</button>
+            <button key={s} onClick={() => setFilter(s)} style={{
+              padding: '6px 16px',
+              borderRadius: '12px',
+              border: '1px solid rgba(139, 92, 246, 0.2)',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 600,
+              background: filter === s ? 'linear-gradient(135deg, #c084fc, #a855f7)' : 'rgba(255, 255, 255, 0.5)',
+              color: filter === s ? '#fff' : '#6b7280',
+              textTransform: 'capitalize',
+              transition: 'all 0.2s',
+              boxShadow: filter === s ? '0 4px 15px rgba(168, 85, 247, 0.3)' : 'none',
+            }}>{s}</button>
           ))}
         </div>
       </div>
-      {filtered.length === 0 && <p className="text-gray-500 text-sm">No sessions found.</p>}
+      {filtered.length === 0 && <p style={{ color: '#9ca3af', fontSize: '14px' }}>No sessions found.</p>}
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={th}>Title</th>
-              <th style={th}>Subject</th>
-              <th style={th}>Start</th>
-              <th style={th}>End</th>
-              <th style={th}>Status</th>
-              <th style={th}>Action</th>
+              {['Title', 'Subject', 'Start', 'End', 'Status', 'Action'].map(h => (
+                <th key={h} style={{
+                  padding: '14px 16px',
+                  textAlign: 'left',
+                  fontWeight: 600,
+                  color: '#6b7280',
+                  borderBottom: '2px solid rgba(233, 213, 255, 0.5)',
+                  fontSize: '13px',
+                  letterSpacing: '0.3px',
+                }}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {filtered.map(s => (
-              <tr key={s.id}>
-                <td style={td}>{s.title}</td>
-                <td style={td}>{s.subject || '—'}</td>
-                <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_start).toLocaleString()}</td>
-                <td style={{ ...td, whiteSpace: 'nowrap' }}>{new Date(s.scheduled_end).toLocaleString()}</td>
-                <td style={td}>
-                  <span style={{ color: statusColor[s.status], fontWeight: 600, textTransform: 'capitalize' }}>
-                    {s.status}
-                  </span>
+              <tr key={s.id} style={{ transition: 'background 0.2s' }}>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563', verticalAlign: 'middle' }}>{s.title}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563', verticalAlign: 'middle' }}>{s.subject || '—'}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{new Date(s.scheduled_start).toLocaleString()}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', color: '#4b5563', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>{new Date(s.scheduled_end).toLocaleString()}</td>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', verticalAlign: 'middle' }}>
+                  <span style={{ color: statusColor[s.status], fontWeight: 600, textTransform: 'capitalize' }}>{s.status}</span>
                 </td>
-                <td style={td}>
+                <td style={{ padding: '14px 16px', borderBottom: '1px solid rgba(233, 213, 255, 0.3)', fontSize: '14px', verticalAlign: 'middle' }}>
                   {isSuperviseble(s) && (
                     <button
                       onClick={() => supervise(s.id, s.room_name)}
                       disabled={joining === s.id}
-                      style={{ padding: '3px 12px', background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, opacity: joining === s.id ? 0.6 : 1 }}
+                      style={{
+                        padding: '6px 16px',
+                        background: 'linear-gradient(135deg, #c084fc, #a855f7)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        opacity: joining === s.id ? 0.6 : 1,
+                        boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)',
+                        transition: 'all 0.2s',
+                      }}
                     >
                       {joining === s.id ? '...' : '👁️ Supervise'}
                     </button>
@@ -153,65 +245,174 @@ const SessionsView = () => {
 };
 
 const AdminDashboard = ({ activeTab, setActiveTab }) => {
+  const { user } = useAuth();
   const [stats, setStats] = useState({ totalStudents: 0, totalTeachers: 0, activeSessions: 0, pendingLeave: 0, completionRate: 0, engagementScore: 0 });
   const [recentActivities, setRecentActivities] = useState([]);
+  const [showActivities, setShowActivities] = useState(false);
+  const roleLabel = ROLE_LABELS[user?.role] || 'Admin';
 
   useEffect(() => {
     axios.get('/api/analytics/admin/stats').then(r => setStats(r.data)).catch(() => {});
-    axios.get('/api/analytics/admin/recent-activities').then(r => setRecentActivities(r.data)).catch(() => {});
-  }, []);
+    if (hasPermission(user?.role, 'users.view')) {
+      axios.get('/api/analytics/admin/recent-activities').then(r => setRecentActivities(r.data)).catch(() => {});
+    }
+  }, [user?.role]);
+
+  useEffect(() => {
+    if (!canAccessTab(user?.role, activeTab)) {
+      setActiveTab('overview');
+    }
+  }, [activeTab, setActiveTab, user?.role]);
+
+  const quickActions = [
+    { label: 'Create Schedule', tab: 'schedule', permission: 'schedule.manage' },
+    { label: 'Manage Users', tab: 'users', permission: 'users.view' },
+    { label: 'Role Management', tab: 'roles', permission: 'sub_admins.view' },
+    { label: 'Monitor Sessions', tab: 'moderation', permission: 'sessions.monitor_live' },
+    { label: 'View Reports', tab: 'reports', permission: 'reports.view' },
+    { label: 'Analytics', tab: 'analytics', permission: 'analytics.view' }
+  ].filter(action => hasPermission(user?.role, action.permission));
 
   return (
-    <div className="p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-800">Admin Dashboard</h1>
-        <p className="text-gray-600">Complete control over your school ecosystem</p>
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 50%, #fbcfe8 100%)',
+      padding: '32px',
+      fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    }}>
+      <div style={{ marginBottom: '32px' }}>
+        <h1 style={{ fontSize: '28px', fontWeight: 700, color: '#2d2d3a', marginBottom: '6px', letterSpacing: '-0.5px' }}>{roleLabel} Dashboard</h1>
+        <p style={{ color: '#6b7280', fontSize: '15px', fontWeight: 400 }}>
+          {user?.role === 'supervisor'
+            ? 'Read-only oversight with live session monitoring'
+            : 'Manage operations, users, schedules, and reporting'}
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-        <StatCard label="Total Students"  value={stats.totalStudents}         color="var(--primary)" />
-        <StatCard label="Total Teachers"  value={stats.totalTeachers}         color="var(--primary)" />
-        <StatCard label="Active Sessions" value={stats.activeSessions}        color="var(--green-500)" />
-        <StatCard label="Pending Leave"   value={stats.pendingLeave}          color="var(--yellow-500)" />
-        <StatCard label="Completion Rate" value={`${stats.completionRate}%`}  color="var(--blue-500)" />
-        <StatCard label="Engagement"      value={`${stats.engagementScore}%`} color="var(--purple-500)" />
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: '20px',
+        marginBottom: '32px',
+      }}>
+        <StatCard label="Total Students" value={stats.totalStudents} color="#a855f7" />
+        <StatCard label="Total Teachers" value={stats.totalTeachers} color="#a855f7" />
+        <StatCard label="Active Sessions" value={stats.activeSessions} color="#10b981" />
+        <StatCard label="Pending Leave" value={stats.pendingLeave} color="#f59e0b" />
+        <StatCard label="Completion Rate" value={`${stats.completionRate}%`} color="#3b82f6" />
+        <StatCard label="Engagement" value={`${stats.engagementScore}%`} color="#8b5cf6" />
       </div>
 
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="card p-6">
-            <h2 className="text-xl font-semibold mb-4">Recent Activities</h2>
-            <div className="space-y-3">
-              {recentActivities.length === 0 && <p className="text-gray-500 text-sm">No recent activity.</p>}
-              {recentActivities.map((a, i) => (
-                <div key={i} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                  <div className="activity-dot"></div>
-                  <div className="flex-1">
-                    <p className="text-sm">{a.description}</p>
-                    <p className="text-xs text-gray-500">{a.time ? new Date(a.time).toLocaleString() : ''}</p>
-                  </div>
-                </div>
-              ))}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '24px',
+        }}>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.55)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderRadius: '24px',
+            padding: '28px',
+            border: '1px solid rgba(255, 255, 255, 0.6)',
+            boxShadow: '0 8px 32px rgba(155, 89, 182, 0.06)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#2d2d3a', letterSpacing: '-0.3px' }}>Recent Activities</h2>
+              <button
+                onClick={() => setShowActivities(!showActivities)}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(139, 92, 246, 0.2)',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: showActivities ? 'linear-gradient(135deg, #c084fc, #a855f7)' : 'rgba(255, 255, 255, 0.5)',
+                  color: showActivities ? '#fff' : '#7c3aed',
+                  transition: 'all 0.2s',
+                  boxShadow: showActivities ? '0 4px 15px rgba(168, 85, 247, 0.3)' : 'none',
+                }}
+              >
+                {showActivities ? 'Hide Activities' : `View Activities (${recentActivities.length})`}
+              </button>
             </div>
+            {showActivities && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {recentActivities.length === 0 && <p style={{ color: '#9ca3af', fontSize: '14px' }}>No recent activity.</p>}
+                {recentActivities.map((a, i) => (
+                  <div key={i} style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    padding: '16px',
+                    background: 'rgba(255, 255, 255, 0.4)',
+                    borderRadius: '16px',
+                    border: '1px solid rgba(255, 255, 255, 0.5)',
+                    transition: 'transform 0.2s',
+                  }}>
+                    <div style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #c084fc, #a855f7)',
+                      flexShrink: 0,
+                      boxShadow: '0 0 8px rgba(168, 85, 247, 0.4)',
+                    }}></div>
+                    <div style={{ flex: 1 }}>
+                      <p style={{ fontSize: '14px', color: '#374151', margin: 0, fontWeight: 500 }}>{a.description}</p>
+                      <p style={{ fontSize: '12px', color: '#9ca3af', margin: '4px 0 0 0' }}>{a.time ? new Date(a.time).toLocaleString() : ''}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <div className="card p-6">
-            <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <button className="btn-primary" onClick={() => setActiveTab('schedule')}>Create Schedule</button>
-              <button className="btn-primary" onClick={() => setActiveTab('users')}>Manage Users</button>
-              <button className="btn-primary" onClick={() => setActiveTab('reports')}>View Reports</button>
-              <button className="btn-primary" onClick={() => setActiveTab('analytics')}>Analytics</button>
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.55)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            borderRadius: '24px',
+            padding: '28px',
+            border: '1px solid rgba(255, 255, 255, 0.6)',
+            boxShadow: '0 8px 32px rgba(155, 89, 182, 0.06)',
+          }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 600, color: '#2d2d3a', marginBottom: '20px', letterSpacing: '-0.3px' }}>Quick Actions</h2>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '14px',
+            }}>
+              {quickActions.map(action => (
+                <button key={action.tab} onClick={() => setActiveTab(action.tab)} style={{
+                  padding: '14px 20px',
+                  borderRadius: '16px',
+                  border: '1px solid rgba(139, 92, 246, 0.15)',
+                  background: 'linear-gradient(135deg, rgba(192, 132, 252, 0.1), rgba(168, 85, 247, 0.05))',
+                  color: '#7c3aed',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease',
+                  boxShadow: '0 4px 15px rgba(139, 92, 246, 0.08)',
+                }}>
+                  {action.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {activeTab === 'users'     && <UserManagement />}
-      {activeTab === 'sessions'  && <SessionsView />}
-      {activeTab === 'schedule'  && <ScheduleManager />}
-      {activeTab === 'leave'     && <LeaveManagement />}
-      {activeTab === 'analytics' && <AnalyticsDashboard />}
-      {activeTab === 'reports'   && <ReportsExport />}
+      {activeTab === 'users'     && canAccessTab(user?.role, 'users') && <UserManagement />}
+      {activeTab === 'roles'     && canAccessTab(user?.role, 'roles') && <RoleManagement />}
+      {activeTab === 'sessions'  && canAccessTab(user?.role, 'sessions') && <SessionsView />}
+      {activeTab === 'moderation' && canAccessTab(user?.role, 'moderation') && <SessionModeration />}
+      {activeTab === 'schedule'  && canAccessTab(user?.role, 'schedule') && <ScheduleManager />}
+      {activeTab === 'leave'     && canAccessTab(user?.role, 'leave') && <LeaveManagement />}
+      {activeTab === 'analytics' && canAccessTab(user?.role, 'analytics') && <AnalyticsDashboard />}
+      {activeTab === 'reports'   && canAccessTab(user?.role, 'reports') && <ReportsExport />}
     </div>
   );
 };

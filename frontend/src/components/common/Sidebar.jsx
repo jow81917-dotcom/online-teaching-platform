@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../contexts/AuthContext';
+import { canAccessTab } from '../../utils/permissions';
 
-const adminLinks  = [
+const dashboardLinks  = [
   { label: 'Overview',    id: 'overview'  },
   { label: 'Users',       id: 'users'     },
+  { label: 'Role Management', id: 'roles' },
+  { label: 'Sessions',    id: 'sessions'  },
+  { label: 'Moderation',  id: 'moderation' },
   { label: 'Schedule',    id: 'schedule'  },
   { label: 'Analytics',   id: 'analytics' },
   { label: 'Reports',     id: 'reports'   },
@@ -33,7 +37,12 @@ const Sidebar = ({ active, setActive }) => {
   const [liveData, setLiveData] = useState(null);
   const [now, setNow] = useState(new Date());
   const showJoin = user?.role === 'teacher' || user?.role === 'student';
-  const links = user?.role === 'admin' ? adminLinks : user?.role === 'teacher' ? teacherLinks : studentLinks;
+  const elevatedLinks = dashboardLinks.filter(link => canAccessTab(user?.role, link.id));
+  const links = ['admin', 'manager', 'supervisor'].includes(user?.role)
+    ? elevatedLinks
+    : user?.role === 'teacher'
+      ? teacherLinks
+      : studentLinks;
 
   useEffect(() => {
     if (!showJoin) return;

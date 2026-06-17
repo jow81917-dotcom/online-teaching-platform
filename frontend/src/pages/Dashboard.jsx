@@ -5,21 +5,29 @@ import Sidebar from '../components/common/Sidebar';
 import AdminDashboard from '../components/admin/AdminDashboard';
 import TeacherDashboard from '../components/teacher/TeacherDashboard';
 import StudentDashboard from '../components/student/StudentDashboard';
+import { canAccessTab } from '../utils/permissions';
 
 const Dashboard = () => {
   const { user } = useAuth();
   const defaultTab = user?.role === 'admin' ? 'overview' : 'overview';
   const [active, setActive] = useState(defaultTab);
+  const isElevatedRole = ['admin', 'manager', 'supervisor'].includes(user?.role);
 
-  // Admin keeps the full desktop layout
-  if (user?.role === 'admin') {
+  const setGuardedActive = (tabId) => {
+    if (canAccessTab(user?.role, tabId)) {
+      setActive(tabId);
+    }
+  };
+
+  // Admin, Manager, and Supervisor keep the full desktop layout
+  if (isElevatedRole) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <Header />
         <div style={{ display: 'flex', flex: 1 }}>
-          <Sidebar active={active} setActive={setActive} />
+          <Sidebar active={active} setActive={setGuardedActive} />
           <main style={{ flex: 1, padding: '1.5rem', background: 'var(--gray-50)', overflowY: 'auto' }}>
-            <AdminDashboard activeTab={active} setActiveTab={setActive} />
+            <AdminDashboard activeTab={active} setActiveTab={setGuardedActive} />
           </main>
         </div>
       </div>

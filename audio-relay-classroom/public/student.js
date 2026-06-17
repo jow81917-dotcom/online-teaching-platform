@@ -5,6 +5,8 @@
 const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get("room") || "test";
 let studentName = urlParams.get("name") || "Student-" + Math.random().toString(36).substr(2, 6);
+const participantRole = urlParams.get("role") || "student";
+const isModerator = ["admin", "manager", "supervisor", "moderator"].includes(participantRole);
 
 const SERVER_URL = window.location.origin;
 const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
@@ -164,12 +166,17 @@ let audioEnabled  = false;
 let isInCall      = false;
 let audioUnlocked = false;
 let micRequestInProgress = false;
+let mutedByModerator = false;
 
 // ── Socket ────────────────────────────────────────────────────────────────
 socket.on("connect", () => {
   myId = socket.id;
-  console.log("[student] connected:", socket.id);
-  socket.emit("join-as-student", roomId, studentName);
+  console.log(isModerator ? "[moderator] connected:" : "[student] connected:", socket.id);
+  if (isModerator) {
+    socket.emit("join-as-moderator", roomId, studentName, participantRole);
+  } else {
+    socket.emit("join-as-student", roomId, studentName);
+  }
   showToast("Connected to server", "rgba(52,199,89,0.2)", "#34c759");
 });
 
@@ -222,6 +229,13 @@ socket.on("session-ended", () => {
     }
     window.location.href = dashboardUrl;
   }, 3000);
+});
+
+socket.on("moderation-audio-control", ({ muted }) => {
+  mutedByModerator = !!muted;
+  if (localStream) {
+    localStream.getAudioTracks().forEach(track => { track.enabled = !mutedByModerator; });
+  }
 });
 
 // ── WebRTC signaling ──────────────────────────────────────────────────────
@@ -322,14 +336,21 @@ function closeInboundPeer() {
 
 // ── Outbound peer: send mic to teacher when approved ──────────────────────
 async function createOutboundPeer(toTeacherId) {
-  if (micRequestInProgress) return false;
+  console.log("[student][outbound] starting createOutboundPeer for teacher:", toTeacherId);
+  if (micRequestInProgress) {
+    console.log("[student][outbound] mic request is already in progress, returning");
+    return false;
+  }
   closeOutboundPeer();
   micRequestInProgress = true;
   try {
+    console.log("[student][outbound] requesting getUserMedia...");
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1, sampleRate: 48000 }
     });
+    console.log("[student][outbound] getUserMedia success! Stream tracks:", localStream.getAudioTracks().length);
   } catch (e) {
+    console.error("[student][outbound] getUserMedia error:", e);
     micRequestInProgress = false;
     socket.emit("student-mic-failed", { roomId, reason: e?.name || "permission denied" });
     showToast("Microphone access denied", "rgba(229,32,46,0.2)", "#ff453a");
@@ -338,6 +359,7 @@ async function createOutboundPeer(toTeacherId) {
 
   const pc = new RTCPeerConnection(ICE_CONFIG);
   outboundPeer = { pc, iceBuf: [] };
+  localStream.getAudioTracks().forEach(track => { track.enabled = !mutedByModerator; });
   localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
   pc.onicecandidate = ({ candidate }) => {
@@ -400,15 +422,14 @@ function updateAudioEnabledState(enabled) {
 function updateHandButtonState() {
   if (canSpeak) {
     btnHand.classList.add('speaking');
-    btnHand.classList.remove('raised');
+    btnHand.classList.remove('muted');
     btnHand.innerHTML = '🎤';
-  } else if (handRaised) {
-    btnHand.classList.add('raised');
-    btnHand.classList.remove('speaking');
-    btnHand.innerHTML = '✋';
+    btnHand.title = 'Turn off microphone';
   } else {
-    btnHand.classList.remove('raised', 'speaking');
-    btnHand.innerHTML = '✋';
+    btnHand.classList.remove('speaking');
+    btnHand.classList.add('muted');
+    btnHand.innerHTML = '🎙️';
+    btnHand.title = 'Turn on microphone';
   }
 }
 
@@ -464,37 +485,57 @@ document.getElementById('btn-leave').addEventListener('click', () => {
 sessionStorage.setItem('classroom_room', roomId);
 sessionStorage.setItem('classroom_name', studentName);
 
-// ── Raise Hand ────────────────────────────────────────────────────────────
+if (isModerator && btnHand) {
+  btnHand.style.display = 'none';
+}
+
+// ── Mic Toggle ────────────────────────────────────────────────────────────
 btnHand.addEventListener('click', () => {
-  if (canSpeak) {
-    showToast("You are already speaking", "rgba(255,204,0,0.2)", "#ffcc00");
+  console.log("[student][click] Mic button clicked. canSpeak:", canSpeak, "isModerator:", isModerator);
+  if (isModerator) {
+    showToast("Moderator is in listen-only mode", "rgba(37,99,255,0.2)", "#6096ff");
     return;
   }
-  if (handRaised) {
+  if (canSpeak) {
+    // Turn OFF mic
+    console.log("[student][click] Turning mic OFF. Emitting cancel-hand...");
     socket.emit("cancel-hand", roomId);
+    canSpeak = false;
     handRaised = false;
+    closeOutboundPeer();
     updateHandButtonState();
-    showToast("Hand request cancelled", "rgba(255,255,255,0.2)", "#fff");
+    showToast("🔇 Microphone turned off", "rgba(255,255,255,0.15)", "#aaa");
   } else {
+    // Turn ON mic
+    console.log("[student][click] Turning mic ON. Emitting raise-hand...");
     socket.emit("raise-hand", roomId);
-    handRaised = true;
     updateHandButtonState();
-    showToast("Hand raised! Waiting for teacher...", "rgba(255,204,0,0.2)", "#ffcc00");
+    showToast("🎤 Connecting microphone...", "rgba(22,194,74,0.2)", "#16c24a");
   }
 });
 
 // ── Socket Events for Hand/Speaker ────────────────────────────────────────
 socket.on("speak-approved", async ({ teacherSocketId }) => {
+  console.log("[student][socket] speak-approved received. teacherSocketId:", teacherSocketId);
   handRaised = false;
   teacherId = teacherSocketId;
-  btnHand.classList.remove("raised");
-  showToast("Teacher requested your mic. Allow browser permission to speak.", "rgba(22,194,74,0.2)", "#16c24a");
+  if (!teacherSocketId) {
+    console.log("[student][socket] speak-approved has NO teacherSocketId. Auto-aborting.");
+    showToast("⚠️ No teacher connected yet", "rgba(255,204,0,0.2)", "#ffcc00");
+    canSpeak = false;
+    updateHandButtonState();
+    return;
+  }
+  console.log("[student][socket] calling createOutboundPeer...");
   const started = await createOutboundPeer(teacherSocketId);
+  console.log("[student][socket] createOutboundPeer finished. started:", started);
   canSpeak = started;
   updateHandButtonState();
   if (started) {
     pillSpeaking.classList.add("show");
-    showToast("🎙️ Your mic is now open!", "rgba(22,194,74,0.2)", "#16c24a");
+    showToast("🎙️ Mic is live!", "rgba(22,194,74,0.2)", "#16c24a");
+  } else {
+    showToast("❌ Could not access microphone", "rgba(255,69,58,0.2)", "#ff453a");
   }
 });
 
@@ -506,11 +547,7 @@ socket.on("speak-revoked", () => {
   showToast("You are no longer speaking", "rgba(255,69,58,0.2)", "#ff453a");
 });
 
-socket.on("hand-rejected", () => {
-  handRaised = false;
-  updateHandButtonState();
-  showToast("Your request to speak was declined", "rgba(255,69,58,0.2)", "#ff453a");
-});
+// hand-rejected no longer used — students control their own mic
 
 socket.on("speaker-changed", ({ speakerId }) => {
   updateActiveSpeakerUI(speakerId);

@@ -144,15 +144,15 @@ exports.getClassroomJoin = async (req, res) => {
 
     const isTeacher = role === 'teacher' && session.teacher_id === id;
     const isStudent = role === 'student' && session.student_id === id;
-    const isAdmin   = role === 'admin';
+    const isObserver = ['admin', 'manager', 'supervisor'].includes(role);
 
     console.log(`[join] user id=${id} role=${role} teacher_id=${session.teacher_id} student_id=${session.student_id} isTeacher=${isTeacher} isStudent=${isStudent}`);
 
-    if (!isTeacher && !isStudent && !isAdmin) {
+    if (!isTeacher && !isStudent && !isObserver) {
       return res.status(403).json({ message: 'You are not assigned to this session' });
     }
 
-    if (!isAdmin) {
+    if (!isObserver) {
       const [timeCheck] = await sequelize.query(
         `SELECT
            scheduled_end > NOW() AS not_ended,
@@ -172,8 +172,11 @@ exports.getClassroomJoin = async (req, res) => {
     }
 
     const room = session.room_name || session.id;
-    // Admin joins as silent observer (student page) so they can hear the teacher
-    const page = role === 'teacher' ? 'teacher.html' : 'student.html';
+    const page = role === 'teacher'
+      ? 'teacher.html'
+      : isObserver
+        ? 'moderator.html'
+        : 'student.html';
 
     // Fetch username from DB since JWT doesn't include it
     const [userRows] = await sequelize.query(
@@ -182,7 +185,7 @@ exports.getClassroomJoin = async (req, res) => {
     );
     const username = userRows[0]?.username || role;
     const name = encodeURIComponent(username);
-    const url  = `${CLASSROOM_URL}/${page}?room=${encodeURIComponent(room)}&name=${name}`;
+    const url  = `${CLASSROOM_URL}/${page}?room=${encodeURIComponent(room)}&name=${name}&role=${encodeURIComponent(role)}`;
 
     // Register end time with audio-relay server for auto-termination
     try {

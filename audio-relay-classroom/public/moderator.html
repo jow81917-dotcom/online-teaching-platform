@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Session Control</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --panel-soft: #eef3f7;
+      --line: #d8e0e7;
+      --text: #17202a;
+      --muted: #607080;
+      --blue: #1967d2;
+      --green: #168a4a;
+      --red: #c5221f;
+      --amber: #b06000;
+      --radius: 8px;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      overflow-x: hidden;
+    }
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      min-height: 36px;
+      border-radius: 6px;
+      padding: 0 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { border-color: #9eb0bf; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .danger { background: var(--red); border-color: var(--red); color: #fff; }
+    .active { background: var(--green); border-color: var(--green); color: #fff; }
+    .shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr) 360px;
+      min-height: 100vh;
+    }
+    aside, main, section { min-width: 0; }
+    .left, .right {
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 18px;
+    }
+    .right { border-right: 0; border-left: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 18px; }
+    .brand h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: var(--panel-soft);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+    .dot.ok { background: var(--green); }
+    .meta {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+    }
+    .label { font-size: 11px; color: var(--muted); text-transform: uppercase; font-weight: 700; }
+    .value { margin-top: 3px; font-size: 14px; font-weight: 700; word-break: break-word; }
+    .controls { display: grid; gap: 10px; }
+    .controls button { width: 100%; justify-content: center; }
+    main { padding: 18px; }
+    .topbar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .stat, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+    .stat { padding: 14px; }
+    .stat strong { display: block; margin-top: 6px; font-size: 24px; }
+    .panel { margin-bottom: 18px; overflow: hidden; }
+    .panel h2 {
+      margin: 0;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 15px;
+      background: #fbfcfd;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 14px; }
+    th { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .role { text-transform: capitalize; }
+    .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .meter {
+      height: 8px;
+      border-radius: 999px;
+      background: #dde6ed;
+      overflow: hidden;
+    }
+    .meter span { display: block; width: 0%; height: 100%; background: var(--green); transition: width .12s ease; }
+    .log-list { display: grid; gap: 10px; max-height: calc(100vh - 250px); overflow: auto; }
+    .log {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfd;
+    }
+    .log b { display: block; font-size: 13px; }
+    .log span { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .empty { padding: 28px; color: var(--muted); text-align: center; }
+    @media (max-width: 1050px) {
+      .shell { grid-template-columns: 1fr; }
+      .left, .right { border: 0; border-bottom: 1px solid var(--line); }
+      .topbar { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      body { background: #fff; }
+      .shell {
+        display: block;
+        min-height: 100vh;
+      }
+      .left {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        box-shadow: 0 8px 18px rgba(23,32,42,0.08);
+      }
+      .brand { margin-bottom: 10px; }
+      .brand h1 { font-size: 16px; }
+      .badge { font-size: 11px; padding: 4px 7px; }
+      .meta {
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        padding: 10px;
+        margin-bottom: 10px;
+      }
+      .meta > div:last-child { grid-column: 1 / -1; }
+      .label { font-size: 10px; }
+      .value { font-size: 12px; }
+      .controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .controls button {
+        min-height: 40px;
+        padding: 0 8px;
+        font-size: 12px;
+      }
+      #endBtn { grid-column: 1 / -1; }
+      main, .right { padding: 12px; }
+      .topbar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+      .stat { padding: 10px; }
+      .stat strong { font-size: 19px; }
+      .panel {
+        margin-bottom: 12px;
+        border-left: 0;
+        border-right: 0;
+        border-radius: 0;
+      }
+      .panel h2 {
+        padding: 12px;
+        font-size: 14px;
+      }
+      #participantWrap table,
+      #participantWrap thead,
+      #participantWrap tbody,
+      #participantWrap tr,
+      #participantWrap th,
+      #participantWrap td {
+        display: block;
+        width: 100%;
+      }
+      #participantWrap thead { display: none; }
+      #participantWrap tr {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      #participantWrap tr:last-child { border-bottom: 0; }
+      #participantWrap td {
+        border: 0;
+        padding: 4px 0;
+      }
+      #participantWrap td:first-child {
+        font-weight: 700;
+        font-size: 15px;
+      }
+      #participantWrap td:nth-child(2),
+      #participantWrap td:nth-child(3) {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .row-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .row-actions button { min-height: 38px; }
+      th, td { padding: 10px 12px; font-size: 13px; }
+      .right {
+        border-left: 0;
+        border-bottom: 0;
+      }
+      .log-list {
+        max-height: none;
+        overflow: visible;
+      }
+      .empty { padding: 20px 12px; }
+    }
+    @media (max-width: 380px) {
+      .controls { grid-template-columns: 1fr; }
+      #endBtn { grid-column: auto; }
+      .topbar { grid-template-columns: 1fr; }
+      .meta { grid-template-columns: 1fr; }
+      .meta > div:last-child { grid-column: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="left">
+      <div class="brand">
+        <h1>Live Control</h1>
+        <span class="badge"><span class="dot" id="socketDot"></span><span id="socketState">Offline</span></span>
+      </div>
+
+      <div class="meta">
+        <div>
+          <div class="label">Room</div>
+          <div class="value" id="roomValue">-</div>
+        </div>
+        <div>
+          <div class="label">Controller</div>
+          <div class="value" id="nameValue">-</div>
+        </div>
+        <div>
+          <div class="label">Mode</div>
+          <div class="value">Silent monitoring</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="joinBtn" class="primary">Join Session</button>
+        <button id="speakBtn">Speak to Class</button>
+        <button id="stopSpeakBtn" disabled>Stop Speaking</button>
+        <button id="muteTeacherBtn">Mute Teacher</button>
+        <button id="unmuteTeacherBtn">Unmute Teacher</button>
+        <button id="endBtn" class="danger">End Session</button>
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div class="stat"><div class="label">Teacher</div><strong id="teacherStat">Offline</strong></div>
+        <div class="stat"><div class="label">Students</div><strong id="studentStat">0</strong></div>
+        <div class="stat"><div class="label">Active Audio</div><strong id="audioStat">Idle</strong></div>
+        <div class="stat"><div class="label">Speaking</div><strong id="speakingStat">No</strong></div>
+      </div>
+
+      <div class="panel">
+        <h2>Classroom View</h2>
+        <div id="boardContainer" style="position: relative; width: 100%; height: 450px; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center;">
+          <!-- Background Image Container -->
+          <div id="image-container" style="position: absolute; inset: 0; display: none; justify-content: center; align-items: center; z-index: 1;">
+            <img id="bg-image" style="max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; display: block;" alt="classroom material"/>
+          </div>
+          <!-- Drawing Canvas -->
+          <canvas id="draw-canvas" style="position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;"></canvas>
+          <!-- Placeholder -->
+          <div id="placeholder" style="color: rgba(255,255,255,0.3); font-size: 13px; text-transform: uppercase; letter-spacing: 0.1em; z-index: 0; pointer-events: none;">
+            Waiting for teacher to share material
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Participants</h2>
+        <div id="participantWrap" class="empty">Join the session to load participants.</div>
+      </div>
+
+      <div class="panel">
+        <h2>Audio Status</h2>
+        <table>
+          <tbody>
+            <tr><td>Teacher stream</td><td><span class="status"><span class="dot" id="teacherAudioDot"></span><span id="teacherAudioText">Not live</span></span></td></tr>
+            <tr><td>Moderator microphone</td><td><div class="meter"><span id="micMeter"></span></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+
+    <section class="right">
+      <div class="panel">
+        <h2>Audit Log</h2>
+        <div id="logList" class="log-list empty">No moderation events yet.</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="moderator.js"></script>
+</body>
+</html>

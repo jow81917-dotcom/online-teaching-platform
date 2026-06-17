@@ -182,17 +182,16 @@
 
     .ctrl-btn:active { transform: scale(0.87); }
 
-    /* Raise Hand Button */
+    /* Mic Toggle Button */
     #btn-hand {
-      background: #c68642;
-      box-shadow: 0 4px 20px rgba(198,132,66,0.4);
-      transition: background-color 0.5s ease, box-shadow 0.4s ease;
+      background: #2a2a2e;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      transition: background-color 0.4s ease, box-shadow 0.4s ease, filter 0.25s ease;
     }
 
-    #btn-hand.raised {
-      background: #ffcc00;
-      box-shadow: 0 0 0 3px rgba(255,204,0,0.4), 0 4px 24px rgba(255,204,0,0.8);
-      filter: brightness(1.15);
+    #btn-hand.muted {
+      background: #2a2a2e;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
     }
 
     #btn-hand.speaking {
@@ -427,7 +426,7 @@
 
   <!-- Bottom Control Bar -->
   <div id="bottom-bar">
-    <button class="ctrl-btn" id="btn-hand" title="Raise Hand">✋</button>
+    <button class="ctrl-btn muted" id="btn-hand" title="Turn on microphone">🎙️</button>
   </div>
 
   <!-- Toast Notification -->

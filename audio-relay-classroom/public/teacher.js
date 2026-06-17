@@ -27,7 +27,6 @@ const penSizeVal     = document.getElementById('pen-size-val');
 const sizeFill       = document.getElementById('size-fill');
 const sizeDotPreview = document.getElementById('size-dot-preview');
 const btnPen         = document.getElementById('btn-pen');
-const btnHand        = document.getElementById('btn-hand');
 const btnCall        = document.getElementById('btn-call');
 const btnClear       = document.getElementById('btn-clear');
 const pillMic        = document.getElementById('pill-mic');
@@ -41,11 +40,6 @@ const sidebarOverlay   = document.getElementById('sidebarOverlay');
 const closeSidebar     = document.getElementById('closeSidebar');
 const studentsList     = document.getElementById('studentsList');
 const studentCountSpan = document.getElementById('studentCount');
-
-// Pending popup elements
-const pendingPopup     = document.getElementById('pendingPopup');
-const closePopup       = document.getElementById('closePopup');
-const pendingQueueList = document.getElementById('pendingQueueList');
 
 // ── ICE configuration ─────────────────────────────────────────────────────
 const IS_LOCAL = location.hostname === "localhost" || location.hostname === "127.0.0.1";
@@ -81,12 +75,14 @@ let animFrame      = null;
 const outboundPeers = new Map();
 const inboundPeers  = new Map();
 const inboundAudio  = new Map();
+const supervisorAudioPeers = new Map();
+const supervisorAudioEls = new Map();
 
 // Student data
 const students = new Map();
-let pendingQueue = [];
 let currentSpeaker = "teacher";
 let teacherMicLive = false;
+let mutedByModerator = false;
 
 // ── Helper Functions ──────────────────────────────────────────────────────
 function logCandidate(label, c) {
@@ -459,6 +455,45 @@ function closeAllInboundPeers() {
   inboundPeers.forEach((_, id) => closeInboundPeer(id));
 }
 
+async function createSupervisorAudioPeer(fromId, offerSdp) {
+  const existing = supervisorAudioPeers.get(fromId);
+  if (existing) existing.pc.close();
+
+  const pc = new RTCPeerConnection(ICE_CONFIG);
+  const entry = { pc, iceBuf: [] };
+  supervisorAudioPeers.set(fromId, entry);
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      socket.emit("ice-candidate", { targetId: fromId, candidate, peerType: "outbound" });
+    }
+  };
+
+  pc.ontrack = ({ streams }) => {
+    let el = supervisorAudioEls.get(fromId);
+    if (!el) {
+      el = document.createElement("audio");
+      el.autoplay = true;
+      el.playsInline = true;
+      document.body.appendChild(el);
+      supervisorAudioEls.set(fromId, el);
+    }
+    el.srcObject = streams[0];
+    el.play().catch(() => {});
+  };
+
+  try {
+    await pc.setRemoteDescription(new RTCSessionDescription(offerSdp));
+    flushIceBuf(entry, `supervisor-${fromId.substr(0,6)}`);
+    const answer = await pc.createAnswer();
+    answer.sdp = preferOpus(answer.sdp);
+    await pc.setLocalDescription(answer);
+    socket.emit("webrtc-answer", { targetId: fromId, sdp: pc.localDescription });
+  } catch (e) {
+    console.error("[supervisor-audio] answer:", e);
+  }
+}
+
 // ── Audio Visualizer ─────────────────────────────────────────────────────
 function setupVisualizer() {
   if (!localStream) return;
@@ -494,6 +529,7 @@ async function startBroadcasting() {
         sampleRate: 48000
       }
     });
+    localStream.getAudioTracks().forEach(track => { track.enabled = !mutedByModerator; });
     isBroadcasting = true;
     teacherMicLive = true;
     pillMic.classList.add('show');
@@ -578,84 +614,11 @@ function escapeHtml(str) {
 
 function updateHandButtonState() {
   if (currentSpeaker !== "teacher") {
-    btnHand.classList.add('speaking');
-    btnHand.classList.remove('has-pending');
     pillSpeaking.classList.add('show');
     pillSpeaking.textContent = `🎤 ${students.get(currentSpeaker)?.name || 'Student'} Speaking`;
-  } else if (pendingQueue.length > 0) {
-    btnHand.classList.add('has-pending');
-    btnHand.classList.remove('speaking');
-    pillSpeaking.classList.remove('show');
   } else {
-    btnHand.classList.remove('has-pending', 'speaking');
     pillSpeaking.classList.remove('show');
   }
-}
-
-function updatePendingPopup() {
-  if (pendingQueue.length === 0) {
-    pendingQueueList.innerHTML = '<div style="text-align:center; color:rgba(255,255,255,0.3); padding:20px;">No pending requests</div>';
-    return;
-  }
-  
-  let html = '';
-  pendingQueue.forEach((item, idx) => {
-    html += `
-      <div class="pending-queue-item">
-        <span style="color:#fff;">${escapeHtml(item.studentName)}</span>
-        <span style="color:#ffcc00; font-size:12px;">🙋 Waiting</span>
-      </div>
-    `;
-  });
-  pendingQueueList.innerHTML = html;
-}
-
-function approveNextStudent() {
-  if (pendingQueue.length === 0) return;
-  
-  const nextStudent = pendingQueue.shift();
-  approveStudentMic(nextStudent.studentId, nextStudent.studentName);
-  showToast(`✅ Approved ${nextStudent.studentName} to speak`, "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
-  
-  updatePendingPopup();
-  updateStudentList();
-  updateHandButtonState();
-}
-
-function approveStudentMic(studentId, studentName) {
-  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
-  const student = students.get(studentId);
-  if (student) {
-    student.handRaised = false;
-    student.approved = true;
-  }
-  socket.emit("approve-speaker", { roomId, studentId });
-  showToast("Requesting mic permission from " + (studentName || student?.name || "student"), "#16c24a", "rgba(22,194,74,0.12)", "rgba(22,194,74,0.35)");
-  updatePendingPopup();
-  updateStudentList();
-  updateHandButtonState();
-}
-
-function toggleMiddleMicButton() {
-  if (currentSpeaker !== "teacher") {
-    revokeSpeaker();
-    return;
-  }
-
-  if (pendingQueue.length > 0) {
-    approveNextStudent();
-    return;
-  }
-
-  const firstStudent = Array.from(students.entries())[0];
-  if (!firstStudent) {
-    socket.emit("teacher-broadcasting");
-    showToast("No students connected", "#ffcc00");
-    return;
-  }
-
-  const [studentId, student] = firstStudent;
-  approveStudentMic(studentId, student.name);
 }
 
 function revokeSpeaker() {
@@ -722,6 +685,13 @@ socket.on("session-ended", () => {
   }, 3000);
 });
 
+socket.on("moderation-audio-control", ({ muted }) => {
+  mutedByModerator = !!muted;
+  if (localStream) {
+    localStream.getAudioTracks().forEach(track => { track.enabled = !mutedByModerator; });
+  }
+});
+
 
 socket.on("teacher-joined", () => {
   console.log("[teacher] joined room:", roomId);
@@ -738,42 +708,16 @@ socket.on("student-connected", ({ studentId, studentName, totalStudents }) => {
 
 socket.on("student-left", ({ studentId, studentName, totalStudents }) => {
   students.delete(studentId);
-  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
   closeOutboundPeer(studentId);
   closeInboundPeer(studentId);
   updateStudentList();
-  updatePendingPopup();
   updateHandButtonState();
   showToast(`👋 ${studentName} left`, "rgba(255,255,255,0.5)", "rgba(255,255,255,0.05)", "rgba(255,255,255,0.12)");
 });
 
-socket.on("hand-raised", ({ studentId, studentName }) => {
-  // Ensure student is tracked even if they joined before teacher started
-  if (!students.has(studentId)) {
-    students.set(studentId, { name: studentName, handRaised: true, approved: false });
-  } else {
-    students.get(studentId).handRaised = true;
-  }
-  // Only add to queue if not already in it
-  if (!pendingQueue.find(s => s.studentId === studentId)) {
-    pendingQueue.push({ studentId, studentName });
-  }
-  updateStudentList();
-  updatePendingPopup();
-  updateHandButtonState();
-  showToast(`🙋 ${studentName} raised hand`, "#ffcc00", "rgba(255,204,0,0.12)", "rgba(255,204,0,0.35)");
-});
+// hand-raised event no longer notified to teacher
 
-socket.on("hand-cancelled", ({ studentId }) => {
-  const student = students.get(studentId);
-  if (student) {
-    student.handRaised = false;
-    pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
-    updateStudentList();
-    updatePendingPopup();
-    updateHandButtonState();
-  }
-});
+// hand-cancelled event no longer notified to teacher
 
 socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
   if (isTeacher) {
@@ -787,9 +731,7 @@ socket.on("speaker-changed", ({ speakerId, speakerName, isTeacher }) => {
       student.approved = true;
       student.handRaised = false;
     }
-    pendingQueue = pendingQueue.filter(s => s.studentId !== speakerId);
   }
-  updatePendingPopup();
   updateStudentList();
   updateHandButtonState();
   if (!isTeacher) {
@@ -803,10 +745,8 @@ socket.on("student-mic-failed", ({ studentId, studentName, reason }) => {
     student.approved = false;
     student.handRaised = false;
   }
-  pendingQueue = pendingQueue.filter(s => s.studentId !== studentId);
   currentSpeaker = "teacher";
   closeInboundPeer(studentId);
-  updatePendingPopup();
   updateStudentList();
   updateHandButtonState();
   showToast((studentName || "Student") + " could not open mic" + (reason ? ": " + reason : ""), "#ff6b6b", "rgba(255,69,58,0.12)", "rgba(255,69,58,0.35)");
@@ -815,6 +755,16 @@ socket.on("student-mic-failed", ({ studentId, studentName, reason }) => {
 socket.on("webrtc-offer-student", async ({ fromId, sdp }) => {
   console.log(`[teacher] inbound offer from student ${fromId.substr(0,6)}`);
   await createInboundPeer(fromId, sdp);
+});
+
+socket.on("webrtc-offer", async ({ fromId, sdp }) => {
+  await createSupervisorAudioPeer(fromId, sdp);
+});
+
+socket.on("audio-monitor-peer", ({ targetId }) => {
+  if (isBroadcasting && localStream && targetId) {
+    createOutboundPeer(targetId, "Audio monitor");
+  }
 });
 
 socket.on("webrtc-answer", ({ fromId, sdp }) => {
@@ -830,9 +780,9 @@ socket.on("webrtc-answer", ({ fromId, sdp }) => {
 });
 
 socket.on("ice-candidate", ({ fromId, candidate, peerType }) => {
-  const entry = peerType === "inbound"
+  const entry = supervisorAudioPeers.get(fromId) || (peerType === "inbound"
     ? inboundPeers.get(fromId)
-    : outboundPeers.get(fromId);
+    : outboundPeers.get(fromId));
   if (!entry || !candidate) return;
 
   const label = peerType === "inbound" ? `in←${fromId.substr(0,6)}` : `out→${fromId.substr(0,6)}`;
@@ -898,9 +848,7 @@ btnPen.addEventListener('click', () => {
   if (pdfDc) pdfDc.style.cursor = penActive ? 'crosshair' : 'default';
 });
 
-btnHand.addEventListener('click', () => {
-  toggleMiddleMicButton();
-});
+// btnHand is removed from teacher UI
 
 btnCall.addEventListener('click', () => {
   if (isBroadcasting) {
@@ -1429,9 +1377,7 @@ function closeSidebarFunc() {
 
 closeSidebar.addEventListener('click', closeSidebarFunc);
 sidebarOverlay.addEventListener('click', closeSidebarFunc);
-closePopup.addEventListener('click', () => {
-  pendingPopup.classList.remove('open');
-});
+// closePopup is removed from teacher UI
 
 window.addEventListener('resize', () => setTimeout(resizeCanvas, 100));
 window.addEventListener('load', () => setTimeout(resizeCanvas, 100));
