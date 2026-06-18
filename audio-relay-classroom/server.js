@@ -8,6 +8,7 @@ const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
+  path: "/audio-socket",
   cors: { origin: "*", methods: ["GET", "POST"] },
   pingTimeout: 60000,
   pingInterval: 25000,

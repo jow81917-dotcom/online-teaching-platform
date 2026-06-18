@@ -6,7 +6,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const roomId = urlParams.get("room") || "test";
 
 const SERVER_URL = window.location.origin;
-const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
+const socket = io(SERVER_URL, { path: "/audio-socket", transports: ["websocket", "polling"], upgrade: true });
 
 // ── DOM refs (DrawCall + Teacher) ──────────────────────────────────────────
 // DrawCall elements

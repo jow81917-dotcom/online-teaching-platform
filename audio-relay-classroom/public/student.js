@@ -9,7 +9,7 @@ const participantRole = urlParams.get("role") || "student";
 const isModerator = ["admin", "manager", "supervisor", "moderator"].includes(participantRole);
 
 const SERVER_URL = window.location.origin;
-const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true });
+const socket = io(SERVER_URL, { path: "/audio-socket", transports: ["websocket", "polling"], upgrade: true });
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
 const imageContainer     = document.getElementById('image-container');

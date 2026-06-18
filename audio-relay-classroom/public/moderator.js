@@ -3,7 +3,7 @@ const roomId = params.get("room") || "test";
 const moderatorName = params.get("name") || "Moderator";
 const moderatorRole = params.get("role") || "supervisor";
 const SERVER_URL = window.location.origin;
-const socket = io(SERVER_URL, { transports: ["websocket", "polling"], upgrade: true, autoConnect: false });
+const socket = io(SERVER_URL, { path: "/audio-socket", transports: ["websocket", "polling"], upgrade: true, autoConnect: false });
 
 const ICE_CONFIG = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
